@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - run: PYTHONPATH=agent pytest agent/tests -q
+      - run: PYTHONPATH=agent python -m reqsys_agent.cli health
+
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - working-directory: extension
+        run: npm ci || npm install
+      - working-directory: extension
+        run: npm run compile
