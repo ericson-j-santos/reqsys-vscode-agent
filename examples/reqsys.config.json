@@ -1,0 +1,28 @@
+{
+  "project": "reqsys-v2-enterprise-real",
+  "mode": "safe-readonly",
+  "allowedPaths": [
+    "README.md",
+    "docs",
+    ".github/workflows",
+    "src",
+    "tests"
+  ],
+  "blockedActions": [
+    "merge",
+    "push",
+    "production-change",
+    "delete-files",
+    "read-secrets"
+  ],
+  "evidencePolicy": {
+    "requireCorrelationId": true,
+    "requireFileEvidence": true,
+    "allowAnswerWithoutContext": false
+  },
+  "statusModel": {
+    "green": "validado com evidência",
+    "yellow": "parcial ou depende de validação",
+    "red": "bloqueado ou inseguro"
+  }
+}
