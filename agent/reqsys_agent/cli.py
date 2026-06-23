@@ -5,6 +5,8 @@ import json
 import uuid
 from pathlib import Path
 
+from reqsys_agent.workspace_reader import ask_index, build_index, read_config
+
 
 def correlation_id() -> str:
     return str(uuid.uuid4())
@@ -15,42 +17,26 @@ def emit(payload: dict) -> int:
     return 0 if payload.get("status") in {"ok", "attention", "blocked"} else 1
 
 
-def read_config(workspace: Path) -> dict:
-    candidates = [
-        workspace / ".reqsys-agent.json",
-        workspace / "reqsys-agent.json",
-    ]
-
-    for candidate in candidates:
-        if candidate.exists():
-            return json.loads(candidate.read_text(encoding="utf-8"))
-
-    return {
-        "project": workspace.name,
-        "mode": "safe-readonly",
-        "allowedPaths": ["README.md", "docs", ".github/workflows"],
-        "blockedActions": ["merge", "push", "production-change", "read-secrets"],
-        "evidencePolicy": {
-            "requireCorrelationId": True,
-            "requireFileEvidence": True,
-            "allowAnswerWithoutContext": False,
-        },
-    }
-
-
 def command_health() -> int:
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "mode": "safe-readonly",
+        "capabilities": [
+            "workspace inspection",
+            "governance checklist",
+            "local context index",
+            "keyword-based local questions",
+        ],
         "restrictions": [
             "no automatic merge",
             "no automatic push",
             "no production changes",
             "no destructive commands",
             "no secret reading",
+            "no LLM required",
         ],
     })
 
@@ -66,9 +52,9 @@ def command_inspect(workspace: Path) -> int:
         "allowed_paths": config.get("allowedPaths", []),
         "blocked_actions": config.get("blockedActions", []),
         "next_actions": [
-            "validate local configuration",
-            "run governance checklist",
-            "enable local index in next increment",
+            "build local context index",
+            "ask keyword-based questions",
+            "enable semantic index in future increment",
         ],
     })
 
@@ -81,12 +67,13 @@ def command_governance(workspace: Path) -> int:
         {"name": "blocked actions", "status": "green" if blocked_actions else "yellow", "detail": ", ".join(blocked_actions)},
         {"name": "evidence policy", "status": "green", "detail": "correlation_id required"},
         {"name": "consumer decoupling", "status": "green", "detail": "plugin outside product repo"},
+        {"name": "local context index", "status": "green", "detail": "available without LLM"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 80,
+        "maturity_percent": 84,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -94,7 +81,31 @@ def command_governance(workspace: Path) -> int:
             "modify production",
             "read secrets",
             "claim green without evidence",
+            "answer without local context when evidence is required",
         ],
+    })
+
+
+def command_build_index(workspace: Path) -> int:
+    index = build_index(workspace)
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "workspace": str(workspace),
+        "project": index.get("project"),
+        "file_count": index.get("file_count", 0),
+        "index_path": str((workspace / ".reqsys" / "index.json").resolve()),
+        "restrictions": index.get("restrictions", []),
+    })
+
+
+def command_ask(workspace: Path, question: str) -> int:
+    result = ask_index(workspace, question)
+    return emit({
+        "status": "ok" if result.get("matches") else "attention",
+        "correlation_id": correlation_id(),
+        "workspace": str(workspace),
+        **result,
     })
 
 
@@ -110,6 +121,13 @@ def main(argv: list[str] | None = None) -> int:
     governance_cmd = sub.add_parser("governance")
     governance_cmd.add_argument("--workspace", required=True)
 
+    build_index_cmd = sub.add_parser("build-index")
+    build_index_cmd.add_argument("--workspace", required=True)
+
+    ask_cmd = sub.add_parser("ask")
+    ask_cmd.add_argument("--workspace", required=True)
+    ask_cmd.add_argument("--question", required=True)
+
     args = parser.parse_args(argv)
 
     if args.command == "health":
@@ -122,6 +140,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "governance":
         return command_governance(workspace)
+
+    if args.command == "build-index":
+        return command_build_index(workspace)
+
+    if args.command == "ask":
+        return command_ask(workspace, args.question)
 
     return emit({"status": "blocked", "correlation_id": correlation_id(), "message": "unknown command"})
 
