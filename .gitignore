@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+build/
+coverage/
+.venv/
+venv/
+*.vsix
+.env
+.env.*
+.reqsys/
