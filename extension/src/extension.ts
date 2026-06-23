@@ -67,6 +67,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand('reqsysAgent.governance', async () => {
     showDocument('ReqSys Agent Governance', await runAgent(context, ['governance', '--workspace', workspacePath()]));
   }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('reqsysAgent.index', async () => {
+    showDocument('ReqSys Agent Index', await runAgent(context, ['index', '--workspace', workspacePath()]));
+  }));
 }
 
 export function deactivate(): void {}
