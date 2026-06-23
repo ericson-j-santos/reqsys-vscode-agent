@@ -1,0 +1,59 @@
+{
+  "name": "reqsys-vscode-agent",
+  "displayName": "ReqSys VSCode Agent",
+  "description": "Plugin local enxuto para inspecionar projetos ReqSys no VS Code.",
+  "version": "0.1.0",
+  "publisher": "reqsys",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:reqsysAgent.health",
+    "onCommand:reqsysAgent.inspect",
+    "onCommand:reqsysAgent.governance"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "reqsysAgent.health",
+        "title": "ReqSys Agent: Health"
+      },
+      {
+        "command": "reqsysAgent.inspect",
+        "title": "ReqSys Agent: Inspect Workspace"
+      },
+      {
+        "command": "reqsysAgent.governance",
+        "title": "ReqSys Agent: Governance Checklist"
+      }
+    ],
+    "configuration": {
+      "title": "ReqSys VSCode Agent",
+      "properties": {
+        "reqsysAgent.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Python executable path."
+        },
+        "reqsysAgent.agentPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to the local agent directory."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "test": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.92.0",
+    "typescript": "^5.5.0"
+  }
+}
