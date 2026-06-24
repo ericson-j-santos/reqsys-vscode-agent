@@ -2,7 +2,7 @@
   "name": "reqsys-vscode-agent",
   "displayName": "ReqSys VSCode Agent",
   "description": "Plugin local enxuto para inspecionar projetos ReqSys no VS Code.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "reqsys",
   "engines": {
     "vscode": "^1.92.0"
@@ -13,7 +13,9 @@
   "activationEvents": [
     "onCommand:reqsysAgent.health",
     "onCommand:reqsysAgent.inspect",
-    "onCommand:reqsysAgent.governance"
+    "onCommand:reqsysAgent.governance",
+    "onCommand:reqsysAgent.buildIndex",
+    "onCommand:reqsysAgent.ask"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -29,6 +31,14 @@
       {
         "command": "reqsysAgent.governance",
         "title": "ReqSys Agent: Governance Checklist"
+      },
+      {
+        "command": "reqsysAgent.buildIndex",
+        "title": "ReqSys Agent: Build Local Context"
+      },
+      {
+        "command": "reqsysAgent.ask",
+        "title": "ReqSys Agent: Ask Local Context"
       }
     ],
     "configuration": {
