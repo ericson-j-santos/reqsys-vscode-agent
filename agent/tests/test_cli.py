@@ -22,3 +22,8 @@ def test_build_index(tmp_path):
 def test_ask(tmp_path):
     (tmp_path / "README.md").write_text("# ReqSys\n\nCI workflows and guardrails.", encoding="utf-8")
     assert main(["ask", "--workspace", str(tmp_path), "--question", "Quais workflows existem?"]) == 0
+
+
+def test_semantic_ask(tmp_path):
+    (tmp_path / "README.md").write_text("# ReqSys\n\nCI workflows, quality gates and guardrails.", encoding="utf-8")
+    assert main(["semantic-ask", "--workspace", str(tmp_path), "--question", "controle de qualidade de pipelines"]) == 0

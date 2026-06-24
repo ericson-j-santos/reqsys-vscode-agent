@@ -5,6 +5,7 @@ import json
 import uuid
 from pathlib import Path
 
+from reqsys_agent.semantic_search import semantic_search
 from reqsys_agent.workspace_reader import ask_index, build_index, read_config
 
 
@@ -22,13 +23,14 @@ def command_health() -> int:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "mode": "safe-readonly",
         "capabilities": [
             "workspace inspection",
             "governance checklist",
             "local context index",
             "keyword-based local questions",
+            "lightweight semantic local search",
         ],
         "restrictions": [
             "no automatic merge",
@@ -36,7 +38,8 @@ def command_health() -> int:
             "no production changes",
             "no destructive commands",
             "no secret reading",
-            "no LLM required",
+            "no external LLM required",
+            "no vector database required",
         ],
     })
 
@@ -54,7 +57,8 @@ def command_inspect(workspace: Path) -> int:
         "next_actions": [
             "build local context index",
             "ask keyword-based questions",
-            "enable semantic index in future increment",
+            "ask semantic local questions",
+            "enable optional LlamaIndex/Ollama in future increment",
         ],
     })
 
@@ -68,12 +72,13 @@ def command_governance(workspace: Path) -> int:
         {"name": "evidence policy", "status": "green", "detail": "correlation_id required"},
         {"name": "consumer decoupling", "status": "green", "detail": "plugin outside product repo"},
         {"name": "local context index", "status": "green", "detail": "available without LLM"},
+        {"name": "semantic local search", "status": "green", "detail": "TF-IDF/cosine without external services"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 84,
+        "maturity_percent": 88,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -82,6 +87,7 @@ def command_governance(workspace: Path) -> int:
             "read secrets",
             "claim green without evidence",
             "answer without local context when evidence is required",
+            "treat TF-IDF ranking as full LLM reasoning",
         ],
     })
 
@@ -109,6 +115,16 @@ def command_ask(workspace: Path, question: str) -> int:
     })
 
 
+def command_semantic_ask(workspace: Path, question: str) -> int:
+    result = semantic_search(workspace, question)
+    return emit({
+        "status": "ok" if result.get("matches") else "attention",
+        "correlation_id": correlation_id(),
+        "workspace": str(workspace),
+        **result,
+    })
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="reqsys-vscode-agent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -128,6 +144,10 @@ def main(argv: list[str] | None = None) -> int:
     ask_cmd.add_argument("--workspace", required=True)
     ask_cmd.add_argument("--question", required=True)
 
+    semantic_ask_cmd = sub.add_parser("semantic-ask")
+    semantic_ask_cmd.add_argument("--workspace", required=True)
+    semantic_ask_cmd.add_argument("--question", required=True)
+
     args = parser.parse_args(argv)
 
     if args.command == "health":
@@ -146,6 +166,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "ask":
         return command_ask(workspace, args.question)
+
+    if args.command == "semantic-ask":
+        return command_semantic_ask(workspace, args.question)
 
     return emit({"status": "blocked", "correlation_id": correlation_id(), "message": "unknown command"})
 

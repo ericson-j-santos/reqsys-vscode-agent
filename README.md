@@ -10,6 +10,7 @@ Fornecer comandos locais no VS Code para:
 - gerar checklist governado;
 - construir índice local de contexto;
 - consultar informações do projeto com base em evidência local;
+- executar busca semântica leve local sem LLM externo;
 - evoluir futuramente para RAG local com LlamaIndex/Ollama.
 
 ## Arquitetura mínima
@@ -19,6 +20,8 @@ VS Code Extension
   -> Python Agent CLI
   -> Workspace Reader Governado
   -> Local Context Index
+  -> Keyword Search
+  -> Lightweight Semantic Search
   -> Arquivo de configuração do projeto
 ```
 
@@ -32,6 +35,7 @@ VS Code Extension
 - Não depende do build do projeto consumidor.
 - Não exige arquitetura máxima para começar.
 - Não usa LLM por padrão nesta fase.
+- Não usa banco vetorial nesta fase.
 
 ## Estrutura
 
@@ -104,13 +108,23 @@ O índice é gerado em:
 .reqsys/index.json
 ```
 
-### Perguntar ao contexto local
+### Perguntar ao contexto local por palavra-chave
 
 ```bash
 PYTHONPATH=agent python -m reqsys_agent.cli ask \
   --workspace /caminho/do/projeto \
   --question "Quais workflows existem?"
 ```
+
+### Perguntar ao contexto local com busca semântica leve
+
+```bash
+PYTHONPATH=agent python -m reqsys_agent.cli semantic-ask \
+  --workspace /caminho/do/projeto \
+  --question "controle de qualidade de pipelines"
+```
+
+A busca semântica desta fase usa TF-IDF + similaridade de cosseno localmente, sem embeddings externos, sem LLM e sem banco vetorial.
 
 ## Comandos VS Code
 
@@ -120,7 +134,8 @@ PYTHONPATH=agent python -m reqsys_agent.cli ask \
 | `ReqSys Agent: Inspect Workspace` | mostra configuração e escopo |
 | `ReqSys Agent: Governance Checklist` | mostra checklist governado |
 | `ReqSys Agent: Build Local Context` | cria `.reqsys/index.json` |
-| `ReqSys Agent: Ask Local Context` | pergunta ao índice local |
+| `ReqSys Agent: Ask Local Context` | pergunta ao índice local por palavra-chave |
+| `ReqSys Agent: Semantic Ask Local Context` | pergunta ao índice local com ranking TF-IDF/cosseno |
 
 ## Segurança operacional
 
@@ -132,7 +147,8 @@ O leitor de workspace:
 - bloqueia diretórios técnicos pesados;
 - bloqueia nomes sensíveis conhecidos;
 - opera em modo `safe-readonly`;
-- não usa LLM nesta fase.
+- não usa LLM nesta fase;
+- não usa serviço externo nesta fase.
 
 ## Roadmap enxuto
 
@@ -140,6 +156,6 @@ O leitor de workspace:
 |---|---|
 | 0.1 | CLI + extensão + config plugável |
 | 0.2 | Workspace Reader + Local Context Index |
-| 0.3 | Busca semântica opcional |
+| 0.3 | Busca semântica local leve |
 | 0.4 | LlamaIndex/Ollama opcional |
 | 0.5 | Sugestão de patch assistida |
