@@ -68,6 +68,20 @@ async function runAndShow(context: vscode.ExtensionContext, title: string, args:
   }
 }
 
+async function promptQuestion(title: string, placeHolder: string): Promise<string | undefined> {
+  const question = await vscode.window.showInputBox({
+    title,
+    prompt: 'Digite uma pergunta baseada no contexto local indexado',
+    placeHolder
+  });
+
+  if (!question || question.trim().length === 0) {
+    return undefined;
+  }
+
+  return question;
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand('reqsysAgent.health', async () => {
     await runAndShow(context, 'ReqSys Agent Health', ['health']);
@@ -86,17 +100,19 @@ export function activate(context: vscode.ExtensionContext): void {
   }));
 
   context.subscriptions.push(vscode.commands.registerCommand('reqsysAgent.ask', async () => {
-    const question = await vscode.window.showInputBox({
-      title: 'ReqSys Agent: Ask Local Context',
-      prompt: 'Digite uma pergunta baseada no contexto local indexado',
-      placeHolder: 'Quais workflows existem?'
-    });
-
-    if (!question || question.trim().length === 0) {
+    const question = await promptQuestion('ReqSys Agent: Ask Local Context', 'Quais workflows existem?');
+    if (!question) {
       return;
     }
-
     await runAndShow(context, 'ReqSys Agent Ask', ['ask', '--workspace', workspacePath(), '--question', question]);
+  }));
+
+  context.subscriptions.push(vscode.commands.registerCommand('reqsysAgent.semanticAsk', async () => {
+    const question = await promptQuestion('ReqSys Agent: Semantic Ask Local Context', 'controle de qualidade de pipelines');
+    if (!question) {
+      return;
+    }
+    await runAndShow(context, 'ReqSys Agent Semantic Ask', ['semantic-ask', '--workspace', workspacePath(), '--question', question]);
   }));
 }
 
