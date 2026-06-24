@@ -5,8 +5,9 @@ import json
 import uuid
 from pathlib import Path
 
+from reqsys_agent.incremental_index import build_incremental_index
 from reqsys_agent.semantic_search import semantic_search
-from reqsys_agent.workspace_reader import ask_index, build_index, read_config
+from reqsys_agent.workspace_reader import ask_index, read_config
 
 
 def correlation_id() -> str:
@@ -23,12 +24,13 @@ def command_health() -> int:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "mode": "safe-readonly",
         "capabilities": [
             "workspace inspection",
             "governance checklist",
             "local context index",
+            "incremental local index cache",
             "keyword-based local questions",
             "lightweight semantic local search",
         ],
@@ -55,7 +57,7 @@ def command_inspect(workspace: Path) -> int:
         "allowed_paths": config.get("allowedPaths", []),
         "blocked_actions": config.get("blockedActions", []),
         "next_actions": [
-            "build local context index",
+            "build local context index with incremental cache",
             "ask keyword-based questions",
             "ask semantic local questions",
             "enable optional LlamaIndex/Ollama in future increment",
@@ -72,13 +74,14 @@ def command_governance(workspace: Path) -> int:
         {"name": "evidence policy", "status": "green", "detail": "correlation_id required"},
         {"name": "consumer decoupling", "status": "green", "detail": "plugin outside product repo"},
         {"name": "local context index", "status": "green", "detail": "available without LLM"},
+        {"name": "incremental cache", "status": "green", "detail": "reuses unchanged indexed files"},
         {"name": "semantic local search", "status": "green", "detail": "TF-IDF/cosine without external services"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 88,
+        "maturity_percent": 90,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -93,13 +96,14 @@ def command_governance(workspace: Path) -> int:
 
 
 def command_build_index(workspace: Path) -> int:
-    index = build_index(workspace)
+    index = build_incremental_index(workspace)
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
         "workspace": str(workspace),
         "project": index.get("project"),
         "file_count": index.get("file_count", 0),
+        "cache": index.get("cache", {}),
         "index_path": str((workspace / ".reqsys" / "index.json").resolve()),
         "restrictions": index.get("restrictions", []),
     })
