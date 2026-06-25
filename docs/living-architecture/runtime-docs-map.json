@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "scope": "REQSYS#007.LIVING_ARCHITECTURE",
+  "updated_at": "2026-06-25",
+  "owner": "IA_DOCUMENTACAO_VIVA",
+  "status": "initial-baseline",
+  "maturity_target_percent": 84,
+  "runtime_doc_links": [
+    {
+      "component_id": "runtime-public",
+      "component_type": "runtime",
+      "expected_docs": [
+        "docs/living-architecture/README.md",
+        "docs/living-architecture/architecture-graph.mmd"
+      ],
+      "evidence_type": "manual-initial",
+      "validation_status": "pending-automation"
+    },
+    {
+      "component_id": "ci-cd-governed",
+      "component_type": "ci_cd",
+      "expected_docs": [
+        "docs/living-architecture/governance.md",
+        "docs/living-architecture/doc-coverage-matrix.md"
+      ],
+      "evidence_type": "manual-initial",
+      "validation_status": "pending-automation"
+    },
+    {
+      "component_id": "observability-analytics",
+      "component_type": "observability",
+      "expected_docs": [
+        "docs/living-architecture/analytics.md",
+        "docs/living-architecture/architecture-graph.mmd"
+      ],
+      "evidence_type": "manual-initial",
+      "validation_status": "pending-automation"
+    },
+    {
+      "component_id": "ux-operational",
+      "component_type": "ux_ui",
+      "expected_docs": [
+        "docs/living-architecture/README.md",
+        "docs/living-architecture/index.html"
+      ],
+      "evidence_type": "manual-initial",
+      "validation_status": "pending-automation"
+    }
+  ],
+  "next_required_automation": {
+    "name": "living-architecture-doc-drift-check",
+    "purpose": "Validar se todos os documentos referenciados existem, possuem owner/status/data e continuam aderentes aos componentes mapeados.",
+    "blocking_level": "warning-first; production-blocking-after-stabilization"
+  }
+}
