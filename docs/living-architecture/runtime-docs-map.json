@@ -3,7 +3,7 @@
   "scope": "REQSYS#007.LIVING_ARCHITECTURE",
   "updated_at": "2026-06-25",
   "owner": "IA_DOCUMENTACAO_VIVA",
-  "status": "initial-baseline",
+  "status": "automation-warning-first",
   "maturity_target_percent": 84,
   "runtime_doc_links": [
     {
@@ -14,7 +14,7 @@
         "docs/living-architecture/architecture-graph.mmd"
       ],
       "evidence_type": "manual-initial",
-      "validation_status": "pending-automation"
+      "validation_status": "automated-warning-first"
     },
     {
       "component_id": "ci-cd-governed",
@@ -24,7 +24,7 @@
         "docs/living-architecture/doc-coverage-matrix.md"
       ],
       "evidence_type": "manual-initial",
-      "validation_status": "pending-automation"
+      "validation_status": "automated-warning-first"
     },
     {
       "component_id": "observability-analytics",
@@ -34,7 +34,7 @@
         "docs/living-architecture/architecture-graph.mmd"
       ],
       "evidence_type": "manual-initial",
-      "validation_status": "pending-automation"
+      "validation_status": "automated-warning-first"
     },
     {
       "component_id": "ux-operational",
@@ -44,12 +44,25 @@
         "docs/living-architecture/index.html"
       ],
       "evidence_type": "manual-initial",
-      "validation_status": "pending-automation"
+      "validation_status": "automated-warning-first"
+    },
+    {
+      "component_id": "living-architecture-automation",
+      "component_type": "governance_automation",
+      "expected_docs": [
+        "docs/living-architecture/automation.md",
+        "tools/living_architecture_doc_drift_check.py",
+        ".github/workflows/living-architecture-docs.yml"
+      ],
+      "evidence_type": "ci-artifact",
+      "validation_status": "automated-warning-first"
     }
   ],
   "next_required_automation": {
     "name": "living-architecture-doc-drift-check",
     "purpose": "Validar se todos os documentos referenciados existem, possuem owner/status/data e continuam aderentes aos componentes mapeados.",
-    "blocking_level": "warning-first; production-blocking-after-stabilization"
+    "blocking_level": "warning-first; production-blocking-after-stabilization",
+    "artifact": "living-architecture-report.json",
+    "workflow": ".github/workflows/living-architecture-docs.yml"
   }
 }
