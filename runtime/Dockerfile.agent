@@ -1,13 +1,15 @@
 FROM python:3.11-slim
 
 LABEL org.opencontainers.image.title="ReqSys VSCode Agent Runtime"
-LABEL org.opencontainers.image.description="Runtime container artifact for ReqSys VSCode Agent readiness validation"
+LABEL org.opencontainers.image.description="Runtime container artifact for ReqSys VSCode Agent readiness validation and Fly.io public runtime"
 LABEL org.opencontainers.image.source="https://github.com/ericson-j-santos/reqsys-vscode-agent"
 LABEL org.opencontainers.image.vendor="ReqSys"
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/agent
+ENV REQSYS_RUNTIME_ENVIRONMENT=dev
+ENV PORT=8080
 
 WORKDIR /app
 
@@ -22,4 +24,4 @@ COPY agent /app/agent
 USER reqsys
 
 ENTRYPOINT ["python", "-m", "reqsys_agent.cli"]
-CMD ["health"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "8080"]
