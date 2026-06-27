@@ -9,6 +9,28 @@ from reqsys_agent.semantic_search import semantic_search
 from reqsys_agent.workspace_reader import ask_index, build_index, read_config
 
 
+RUNTIME_ENVIRONMENTS = [
+    {
+        "name": "dev",
+        "purpose": "validar build, healthcheck e artefatos sem impacto público",
+        "required_gates": ["ci", "healthcheck", "governance-checklist"],
+        "rollback": "reverter para último commit verde na branch de integração",
+    },
+    {
+        "name": "staging",
+        "purpose": "validar release candidata com contrato próximo de produção",
+        "required_gates": ["ci", "healthcheck", "smoke-test", "rollback-plan"],
+        "rollback": "promover release anterior validada ou desfazer tag candidata",
+    },
+    {
+        "name": "production",
+        "purpose": "publicar runtime somente com evidência verde e rollback documentado",
+        "required_gates": ["ci", "healthcheck", "smoke-test", "security-gates", "approval"],
+        "rollback": "retornar para release estável anterior e registrar incidente com correlation_id",
+    },
+]
+
+
 def correlation_id() -> str:
     return str(uuid.uuid4())
 
@@ -23,7 +45,7 @@ def command_health() -> int:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "mode": "safe-readonly",
         "capabilities": [
             "workspace inspection",
@@ -31,6 +53,7 @@ def command_health() -> int:
             "local context index",
             "keyword-based local questions",
             "lightweight semantic local search",
+            "runtime public deploy readiness contract",
         ],
         "restrictions": [
             "no automatic merge",
@@ -41,6 +64,47 @@ def command_health() -> int:
             "no external LLM required",
             "no vector database required",
         ],
+    })
+
+
+def command_runtime_deploy(environment: str | None = None) -> int:
+    environments = RUNTIME_ENVIRONMENTS
+    if environment:
+        environments = [item for item in environments if item["name"] == environment]
+
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "service": "reqsys-vscode-agent",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.DEPLOY_RUNTIME",
+        "branch": "ai/runtime-public",
+        "maturity_percent": 66,
+        "target_maturity_percent": 100,
+        "environment_count": len(environments),
+        "environments": environments,
+        "healthcheck": {
+            "command": "PYTHONPATH=agent python -m reqsys_agent.cli health",
+            "expected_status": "ok",
+            "startup_health_required": True,
+        },
+        "deploy_contract": {
+            "strategy": "small governed PRs with draft mode until CI is green",
+            "artifact_evidence": "CI logs, health output, smoke evidence and rollback note",
+            "promotion_order": ["dev", "staging", "production"],
+        },
+        "kpis": {
+            "uptime": "target >= 99.5% after public runtime exists",
+            "deploy_success_rate": "target >= 95% after pipeline stabilization",
+            "mttr": "target <= 30 minutes for rollback-supported incidents",
+            "startup_health": "required before promotion",
+        },
+        "cannot_do": [
+            "publish production without green CI evidence",
+            "claim public URL without validated runtime",
+            "bypass security gates for Auth, CORS, JWT, secrets or audit",
+            "deploy without documented rollback path",
+        ],
+        "next_increment": "add environment-specific deployment workflow after repository runtime target is selected",
     })
 
 
@@ -73,12 +137,13 @@ def command_governance(workspace: Path) -> int:
         {"name": "consumer decoupling", "status": "green", "detail": "plugin outside product repo"},
         {"name": "local context index", "status": "green", "detail": "available without LLM"},
         {"name": "semantic local search", "status": "green", "detail": "TF-IDF/cosine without external services"},
+        {"name": "runtime deploy contract", "status": "green", "detail": "health, rollout and rollback evidence required"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 88,
+        "maturity_percent": 89,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -131,6 +196,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("health")
 
+    runtime_cmd = sub.add_parser("runtime-deploy")
+    runtime_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default=None)
+
     inspect_cmd = sub.add_parser("inspect")
     inspect_cmd.add_argument("--workspace", required=True)
 
@@ -152,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "health":
         return command_health()
+
+    if args.command == "runtime-deploy":
+        return command_runtime_deploy(args.environment)
 
     workspace = Path(getattr(args, "workspace", ".")).resolve()
 

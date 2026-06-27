@@ -11,6 +11,7 @@ Fornecer comandos locais no VS Code para:
 - construir índice local de contexto;
 - consultar informações do projeto com base em evidência local;
 - executar busca semântica leve local sem LLM externo;
+- expor contrato inicial de runtime público/deploy com healthcheck, ambientes, rollback e artifact de evidência;
 - evoluir futuramente para RAG local com LlamaIndex/Ollama.
 
 ## Arquitetura mínima
@@ -22,6 +23,8 @@ VS Code Extension
   -> Local Context Index
   -> Keyword Search
   -> Lightweight Semantic Search
+  -> Runtime Deploy Readiness Contract
+  -> Runtime Deploy Readiness Workflow
   -> Arquivo de configuração do projeto
 ```
 
@@ -36,6 +39,7 @@ VS Code Extension
 - Não exige arquitetura máxima para começar.
 - Não usa LLM por padrão nesta fase.
 - Não usa banco vetorial nesta fase.
+- Não publica URL pública sem CI verde e smoke test.
 
 ## Estrutura
 
@@ -89,6 +93,44 @@ npm run compile
 ```bash
 PYTHONPATH=agent python -m reqsys_agent.cli health
 ```
+
+### Runtime público / deploy
+
+```bash
+PYTHONPATH=agent python -m reqsys_agent.cli runtime-deploy
+```
+
+Contrato filtrado por ambiente:
+
+```bash
+PYTHONPATH=agent python -m reqsys_agent.cli runtime-deploy --environment staging
+```
+
+Esse comando registra o contrato inicial da frente `REQSYS#002 • Runtime Público / Deploy`, incluindo:
+
+- ambientes `dev`, `staging` e `production`;
+- healthcheck obrigatório;
+- ordem de promoção;
+- evidências exigidas;
+- KPIs de runtime;
+- restrições de segurança;
+- diretriz de rollback.
+
+Documentação detalhada:
+
+```text
+docs/RUNTIME_PUBLIC_DEPLOY.md
+```
+
+### Workflow de readiness de deploy
+
+```text
+.github/workflows/runtime-deploy.yml
+```
+
+O workflow executa testes, healthcheck, contrato de deploy por ambiente e publica artifact de evidência `runtime-deploy-evidence-*`.
+
+Ele não publica produção e não cria URL pública.
 
 ### Inspecionar workspace
 
@@ -150,6 +192,15 @@ O leitor de workspace:
 - não usa LLM nesta fase;
 - não usa serviço externo nesta fase.
 
+A frente de runtime/deploy:
+
+- não publica produção sem evidência de CI;
+- não informa URL pública sem smoke test validado;
+- exige healthcheck antes de promoção;
+- exige rollback documentado;
+- gera artifact de evidência no workflow de readiness;
+- mantém produção bloqueada em caso de violação de Auth, CORS, JWT, secrets, PII ou auditoria.
+
 ## Roadmap enxuto
 
 | Fase | Entrega |
@@ -157,5 +208,7 @@ O leitor de workspace:
 | 0.1 | CLI + extensão + config plugável |
 | 0.2 | Workspace Reader + Local Context Index |
 | 0.3 | Busca semântica local leve |
-| 0.4 | LlamaIndex/Ollama opcional |
-| 0.5 | Sugestão de patch assistida |
+| 0.4 | Contrato de runtime público/deploy |
+| 0.5 | Workflow de readiness de deploy com artifact |
+| 0.6 | LlamaIndex/Ollama opcional |
+| 0.7 | Sugestão de patch assistida |
