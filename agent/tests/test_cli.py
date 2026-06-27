@@ -5,6 +5,14 @@ def test_health():
     assert main(["health"]) == 0
 
 
+def test_runtime_deploy_contract():
+    assert main(["runtime-deploy"]) == 0
+
+
+def test_runtime_deploy_contract_by_environment():
+    assert main(["runtime-deploy", "--environment", "staging"]) == 0
+
+
 def test_inspect(tmp_path):
     assert main(["inspect", "--workspace", str(tmp_path)]) == 0
 
