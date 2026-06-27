@@ -37,6 +37,26 @@ def test_runtime_public_contract_with_duckdns():
     ]) == 0
 
 
+def test_runtime_monitor_contract():
+    assert main([
+        "runtime-monitor",
+        "--base-url",
+        "https://reqsys-vscode-agent.fly.dev",
+    ]) == 0
+
+
+def test_runtime_monitor_contract_with_duckdns():
+    assert main([
+        "runtime-monitor",
+        "--environment",
+        "staging",
+        "--base-url",
+        "https://reqsys-vscode-agent.fly.dev",
+        "--duckdns-url",
+        "https://reqsys.duckdns.org",
+    ]) == 0
+
+
 def test_inspect(tmp_path):
     assert main(["inspect", "--workspace", str(tmp_path)]) == 0
 
