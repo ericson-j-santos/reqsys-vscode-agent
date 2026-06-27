@@ -30,6 +30,17 @@ RUNTIME_ENVIRONMENTS = [
     },
 ]
 
+RUNTIME_CONTAINER_ARTIFACT = {
+    "image_name": "reqsys-vscode-agent-runtime",
+    "dockerfile": "runtime/Dockerfile.agent",
+    "build_context": ".",
+    "evidence_path": ".reqsys/evidence/runtime-artifact",
+    "publish_registry": False,
+    "runs_as_non_root": True,
+    "startup_command": "PYTHONPATH=/app/agent python -m reqsys_agent.cli health",
+    "readiness_command": "PYTHONPATH=/app/agent python -m reqsys_agent.cli runtime-deploy",
+}
+
 
 def correlation_id() -> str:
     return str(uuid.uuid4())
@@ -45,7 +56,7 @@ def command_health() -> int:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "mode": "safe-readonly",
         "capabilities": [
             "workspace inspection",
@@ -54,6 +65,7 @@ def command_health() -> int:
             "keyword-based local questions",
             "lightweight semantic local search",
             "runtime public deploy readiness contract",
+            "runtime container artifact contract",
         ],
         "restrictions": [
             "no automatic merge",
@@ -108,6 +120,46 @@ def command_runtime_deploy(environment: str | None = None) -> int:
     })
 
 
+def command_runtime_artifact(environment: str | None = None) -> int:
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "service": "reqsys-vscode-agent",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.CONTAINER_ARTIFACT",
+        "branch": "ai/runtime-container-artifact",
+        "maturity_percent": 74,
+        "environment": environment or "dev",
+        "artifact": RUNTIME_CONTAINER_ARTIFACT,
+        "quality_gates": [
+            "python tests",
+            "docker build",
+            "container startup healthcheck",
+            "container deploy readiness contract",
+            "image metadata inspection",
+            "artifact evidence upload",
+        ],
+        "security_controls": [
+            "non-root container user",
+            "no secrets baked into image",
+            "no registry push in this increment",
+            "no production deployment",
+            "metadata labels for traceability",
+        ],
+        "outputs": [
+            "container-health.json",
+            "container-runtime-deploy.json",
+            "image-inspect.json",
+            "summary.md",
+        ],
+        "cannot_do": [
+            "publish image to registry without explicit target and credentials",
+            "deploy public URL from artifact workflow",
+            "claim production readiness without smoke test against public runtime",
+        ],
+        "next_increment": "choose public runtime target and add deployment job with smoke test and rollback evidence",
+    })
+
+
 def command_inspect(workspace: Path) -> int:
     config = read_config(workspace)
     return emit({
@@ -138,12 +190,13 @@ def command_governance(workspace: Path) -> int:
         {"name": "local context index", "status": "green", "detail": "available without LLM"},
         {"name": "semantic local search", "status": "green", "detail": "TF-IDF/cosine without external services"},
         {"name": "runtime deploy contract", "status": "green", "detail": "health, rollout and rollback evidence required"},
+        {"name": "runtime container artifact", "status": "green", "detail": "container build evidence without registry publication"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 89,
+        "maturity_percent": 91,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -199,6 +252,9 @@ def main(argv: list[str] | None = None) -> int:
     runtime_cmd = sub.add_parser("runtime-deploy")
     runtime_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default=None)
 
+    artifact_cmd = sub.add_parser("runtime-artifact")
+    artifact_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
+
     inspect_cmd = sub.add_parser("inspect")
     inspect_cmd.add_argument("--workspace", required=True)
 
@@ -223,6 +279,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "runtime-deploy":
         return command_runtime_deploy(args.environment)
+
+    if args.command == "runtime-artifact":
+        return command_runtime_artifact(args.environment)
 
     workspace = Path(getattr(args, "workspace", ".")).resolve()
 
