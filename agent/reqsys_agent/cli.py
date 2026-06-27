@@ -42,6 +42,8 @@ RUNTIME_CONTAINER_ARTIFACT = {
     "readiness_command": "PYTHONPATH=/app/agent python -m reqsys_agent.cli runtime-deploy",
 }
 
+SMOKE_ENDPOINTS = ["/health", "/ready", "/runtime-deploy", "/runtime-artifact", "/runtime-public"]
+
 
 def correlation_id() -> str:
     return str(uuid.uuid4())
@@ -57,7 +59,7 @@ def command_health() -> int:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "version": "0.6.0",
+        "version": "0.7.0",
         "mode": "safe-readonly",
         "capabilities": [
             "workspace inspection",
@@ -68,6 +70,7 @@ def command_health() -> int:
             "runtime public deploy readiness contract",
             "runtime container artifact contract",
             "runtime public HTTP service",
+            "runtime public smoke monitor contract",
         ],
         "restrictions": [
             "no automatic merge",
@@ -202,6 +205,47 @@ def command_runtime_public(environment: str, app_name: str, duckdns_hostname: st
     })
 
 
+def command_runtime_monitor(base_url: str, environment: str, duckdns_url: str | None) -> int:
+    normalized_base_url = base_url.rstrip("/")
+    normalized_duckdns_url = duckdns_url.rstrip("/") if duckdns_url else None
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "service": "reqsys-vscode-agent",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.SMOKE_MONITOR",
+        "branch": "ai/flyio-smoke-monitor",
+        "maturity_percent": 86,
+        "environment": environment,
+        "targets": {
+            "primary_base_url": normalized_base_url,
+            "duckdns_url": normalized_duckdns_url,
+        },
+        "smoke_endpoints": SMOKE_ENDPOINTS,
+        "evidence_files": [
+            "monitor-contract.json",
+            "primary-health.json",
+            "primary-ready.json",
+            "primary-runtime-deploy.json",
+            "primary-runtime-artifact.json",
+            "primary-runtime-public.json",
+            "duckdns-health.json",
+            "summary.md",
+        ],
+        "success_criteria": [
+            "all primary smoke endpoints return HTTP 2xx",
+            "DuckDNS health returns HTTP 2xx when duckdns_url is provided",
+            "response payload includes status=ok for runtime endpoints",
+            "evidence artifact is uploaded",
+        ],
+        "cannot_do": [
+            "create DNS records automatically",
+            "fix Fly.io runtime without a deploy workflow run",
+            "claim uptime SLA from a single smoke run",
+        ],
+        "next_increment": "schedule governed uptime probes after public URL is stable",
+    })
+
+
 def command_inspect(workspace: Path) -> int:
     config = read_config(workspace)
     return emit({
@@ -234,12 +278,13 @@ def command_governance(workspace: Path) -> int:
         {"name": "runtime deploy contract", "status": "green", "detail": "health, rollout and rollback evidence required"},
         {"name": "runtime container artifact", "status": "green", "detail": "container build evidence without registry publication"},
         {"name": "fly.io public runtime", "status": "green", "detail": "workflow_dispatch deploy with HTTP smoke evidence"},
+        {"name": "fly.io smoke monitor", "status": "green", "detail": "manual smoke probes with artifact evidence"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 92,
+        "maturity_percent": 93,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -303,6 +348,11 @@ def main(argv: list[str] | None = None) -> int:
     public_cmd.add_argument("--app-name", default="reqsys-vscode-agent")
     public_cmd.add_argument("--duckdns-hostname", default=None)
 
+    monitor_cmd = sub.add_parser("runtime-monitor")
+    monitor_cmd.add_argument("--base-url", required=True)
+    monitor_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
+    monitor_cmd.add_argument("--duckdns-url", default=None)
+
     serve_cmd = sub.add_parser("serve")
     serve_cmd.add_argument("--host", default="127.0.0.1")
     serve_cmd.add_argument("--port", type=int, default=8080)
@@ -337,6 +387,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "runtime-public":
         return command_runtime_public(args.environment, args.app_name, args.duckdns_hostname)
+
+    if args.command == "runtime-monitor":
+        return command_runtime_monitor(args.base_url, args.environment, args.duckdns_url)
 
     if args.command == "serve":
         return serve_runtime(args.host, args.port)
