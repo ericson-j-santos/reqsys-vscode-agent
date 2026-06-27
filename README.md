@@ -12,6 +12,7 @@ Fornecer comandos locais no VS Code para:
 - consultar informações do projeto com base em evidência local;
 - executar busca semântica leve local sem LLM externo;
 - expor contrato inicial de runtime público/deploy com healthcheck, ambientes, rollback e artifact de evidência;
+- validar artefato/container sem publicar produção;
 - evoluir futuramente para RAG local com LlamaIndex/Ollama.
 
 ## Arquitetura mínima
@@ -25,6 +26,7 @@ VS Code Extension
   -> Lightweight Semantic Search
   -> Runtime Deploy Readiness Contract
   -> Runtime Deploy Readiness Workflow
+  -> Runtime Container Artifact Workflow
   -> Arquivo de configuração do projeto
 ```
 
@@ -40,12 +42,14 @@ VS Code Extension
 - Não usa LLM por padrão nesta fase.
 - Não usa banco vetorial nesta fase.
 - Não publica URL pública sem CI verde e smoke test.
+- Não faz push de imagem para registry sem alvo e credenciais explícitos.
 
 ## Estrutura
 
 ```text
 extension/
 agent/
+runtime/
 examples/reqsys.config.json
 docs/
 .github/workflows/
@@ -116,6 +120,24 @@ Esse comando registra o contrato inicial da frente `REQSYS#002 • Runtime Públ
 - restrições de segurança;
 - diretriz de rollback.
 
+### Artefato/container de runtime
+
+```bash
+PYTHONPATH=agent python -m reqsys_agent.cli runtime-artifact
+```
+
+Contrato filtrado por ambiente:
+
+```bash
+PYTHONPATH=agent python -m reqsys_agent.cli runtime-artifact --environment staging
+```
+
+Dockerfile do runtime:
+
+```text
+runtime/Dockerfile.agent
+```
+
 Documentação detalhada:
 
 ```text
@@ -131,6 +153,16 @@ docs/RUNTIME_PUBLIC_DEPLOY.md
 O workflow executa testes, healthcheck, contrato de deploy por ambiente e publica artifact de evidência `runtime-deploy-evidence-*`.
 
 Ele não publica produção e não cria URL pública.
+
+### Workflow de artefato/container
+
+```text
+.github/workflows/runtime-artifact.yml
+```
+
+O workflow executa testes, build Docker, healthcheck dentro do container, contrato de deploy dentro do container, inspeção de metadados da imagem e publica artifact de evidência `runtime-container-artifact-evidence-*`.
+
+Ele não faz push para registry, não publica produção e não cria URL pública.
 
 ### Inspecionar workspace
 
@@ -199,6 +231,7 @@ A frente de runtime/deploy:
 - exige healthcheck antes de promoção;
 - exige rollback documentado;
 - gera artifact de evidência no workflow de readiness;
+- gera artifact de evidência no workflow de container;
 - mantém produção bloqueada em caso de violação de Auth, CORS, JWT, secrets, PII ou auditoria.
 
 ## Roadmap enxuto
@@ -210,5 +243,7 @@ A frente de runtime/deploy:
 | 0.3 | Busca semântica local leve |
 | 0.4 | Contrato de runtime público/deploy |
 | 0.5 | Workflow de readiness de deploy com artifact |
-| 0.6 | LlamaIndex/Ollama opcional |
-| 0.7 | Sugestão de patch assistida |
+| 0.6 | Artefato/container de runtime com evidência |
+| 0.7 | Deploy público controlado + smoke HTTP |
+| 0.8 | LlamaIndex/Ollama opcional |
+| 0.9 | Sugestão de patch assistida |

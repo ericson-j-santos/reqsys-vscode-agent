@@ -1,0 +1,137 @@
+name: Runtime Container Artifact
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/runtime-artifact.yml"
+      - "runtime/**"
+      - "agent/**"
+      - "docs/RUNTIME_PUBLIC_DEPLOY.md"
+      - "README.md"
+      - ".dockerignore"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente lógico para evidência do artefato"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  container-artifact:
+    name: container-artifact
+    runs-on: ubuntu-latest
+    env:
+      SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
+      IMAGE_NAME: reqsys-vscode-agent-runtime
+      IMAGE_TAG: reqsys-vscode-agent-runtime:${{ github.sha }}
+      EVIDENCE_DIR: .reqsys/evidence/runtime-artifact
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install agent dependencies
+        working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate selected environment
+        run: |
+          case "${SELECTED_ENVIRONMENT}" in
+            dev|staging|production)
+              echo "Selected environment: ${SELECTED_ENVIRONMENT}"
+              ;;
+            *)
+              echo "Invalid environment: ${SELECTED_ENVIRONMENT}"
+              exit 1
+              ;;
+          esac
+
+      - name: Run agent tests
+        run: PYTHONPATH=agent pytest agent/tests -q
+
+      - name: Prepare evidence directory
+        run: mkdir -p "${EVIDENCE_DIR}"
+
+      - name: Emit artifact contract
+        run: |
+          PYTHONPATH=agent python -m reqsys_agent.cli runtime-artifact --environment "${SELECTED_ENVIRONMENT}" \
+            | tee "${EVIDENCE_DIR}/runtime-artifact-contract.json"
+
+      - name: Build runtime container image
+        run: |
+          docker build \
+            -f runtime/Dockerfile.agent \
+            --label org.opencontainers.image.revision=${GITHUB_SHA} \
+            --label reqsys.domain=REQSYS#002.RUNTIME_PUBLICO.CONTAINER_ARTIFACT \
+            --label reqsys.environment=${SELECTED_ENVIRONMENT} \
+            -t "${IMAGE_TAG}" \
+            .
+
+      - name: Run container startup healthcheck
+        run: |
+          docker run --rm "${IMAGE_TAG}" health \
+            | tee "${EVIDENCE_DIR}/container-health.json"
+
+      - name: Run container deploy readiness contract
+        run: |
+          docker run --rm "${IMAGE_TAG}" runtime-deploy --environment "${SELECTED_ENVIRONMENT}" \
+            | tee "${EVIDENCE_DIR}/container-runtime-deploy.json"
+
+      - name: Inspect image metadata
+        run: |
+          docker image inspect "${IMAGE_TAG}" > "${EVIDENCE_DIR}/image-inspect.json"
+
+      - name: Production safety gate
+        run: |
+          if [ "${SELECTED_ENVIRONMENT}" = "production" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Production artifact evidence can only run by explicit workflow_dispatch."
+            exit 1
+          fi
+          echo "Container artifact safety gate passed for ${SELECTED_ENVIRONMENT}. No registry push and no deployment will be executed."
+
+      - name: Write execution summary
+        run: |
+          cat > "${EVIDENCE_DIR}/summary.md" <<EOF
+          # Runtime Container Artifact Evidence
+
+          - Domain: REQSYS#002.RUNTIME_PUBLICO.CONTAINER_ARTIFACT
+          - Environment: ${SELECTED_ENVIRONMENT}
+          - Workflow: ${GITHUB_WORKFLOW}
+          - Run ID: ${GITHUB_RUN_ID}
+          - Commit: ${GITHUB_SHA}
+          - Actor: ${GITHUB_ACTOR}
+          - Image: ${IMAGE_TAG}
+          - Status: container artifact built and validated
+
+          ## Evidence files
+
+          - runtime-artifact-contract.json
+          - container-health.json
+          - container-runtime-deploy.json
+          - image-inspect.json
+
+          ## Explicit constraints
+
+          This workflow does not push to a registry, does not deploy production and does not create a public URL.
+          EOF
+
+      - name: Upload runtime artifact evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-container-artifact-evidence-${{ env.SELECTED_ENVIRONMENT }}
+          path: .reqsys/evidence/runtime-artifact
+          retention-days: 14

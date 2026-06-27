@@ -1,0 +1,14 @@
+.git
+.github
+.reqsys
+node_modules
+extension/node_modules
+agent/.venv
+agent/__pycache__
+**/__pycache__
+**/*.pyc
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log

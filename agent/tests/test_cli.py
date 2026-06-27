@@ -13,6 +13,14 @@ def test_runtime_deploy_contract_by_environment():
     assert main(["runtime-deploy", "--environment", "staging"]) == 0
 
 
+def test_runtime_artifact_contract():
+    assert main(["runtime-artifact"]) == 0
+
+
+def test_runtime_artifact_contract_by_environment():
+    assert main(["runtime-artifact", "--environment", "staging"]) == 0
+
+
 def test_inspect(tmp_path):
     assert main(["inspect", "--workspace", str(tmp_path)]) == 0
 
