@@ -5,6 +5,7 @@ import json
 import uuid
 from pathlib import Path
 
+from reqsys_agent.http_runtime import serve_runtime
 from reqsys_agent.semantic_search import semantic_search
 from reqsys_agent.workspace_reader import ask_index, build_index, read_config
 
@@ -37,7 +38,7 @@ RUNTIME_CONTAINER_ARTIFACT = {
     "evidence_path": ".reqsys/evidence/runtime-artifact",
     "publish_registry": False,
     "runs_as_non_root": True,
-    "startup_command": "PYTHONPATH=/app/agent python -m reqsys_agent.cli health",
+    "startup_command": "PYTHONPATH=/app/agent python -m reqsys_agent.cli serve --host 0.0.0.0 --port 8080",
     "readiness_command": "PYTHONPATH=/app/agent python -m reqsys_agent.cli runtime-deploy",
 }
 
@@ -56,7 +57,7 @@ def command_health() -> int:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "mode": "safe-readonly",
         "capabilities": [
             "workspace inspection",
@@ -66,6 +67,7 @@ def command_health() -> int:
             "lightweight semantic local search",
             "runtime public deploy readiness contract",
             "runtime container artifact contract",
+            "runtime public HTTP service",
         ],
         "restrictions": [
             "no automatic merge",
@@ -160,6 +162,46 @@ def command_runtime_artifact(environment: str | None = None) -> int:
     })
 
 
+def command_runtime_public(environment: str, app_name: str, duckdns_hostname: str | None) -> int:
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "service": "reqsys-vscode-agent",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.FLYIO_DUCKDNS",
+        "branch": "ai/flyio-public-deploy",
+        "maturity_percent": 82,
+        "environment": environment,
+        "target": {
+            "provider": "fly.io",
+            "app_name": app_name,
+            "fly_url": f"https://{app_name}.fly.dev",
+            "duckdns_hostname": duckdns_hostname,
+            "duckdns_url": f"https://{duckdns_hostname}" if duckdns_hostname else None,
+        },
+        "cost_guard": {
+            "auto_stop_machines": "stop",
+            "auto_start_machines": True,
+            "min_machines_running": 0,
+            "paid_database": False,
+            "persistent_volume_required": False,
+        },
+        "required_gates": [
+            "workflow_dispatch",
+            "FLY_API_TOKEN secret present",
+            "docker build",
+            "fly deploy",
+            "HTTP smoke on fly.dev",
+            "optional HTTP smoke on DuckDNS hostname",
+            "rollback hint evidence",
+        ],
+        "cannot_do": [
+            "configure DuckDNS records from GitHub without provider credentials",
+            "claim production readiness without smoke evidence",
+            "deploy production outside explicit workflow_dispatch",
+        ],
+    })
+
+
 def command_inspect(workspace: Path) -> int:
     config = read_config(workspace)
     return emit({
@@ -191,12 +233,13 @@ def command_governance(workspace: Path) -> int:
         {"name": "semantic local search", "status": "green", "detail": "TF-IDF/cosine without external services"},
         {"name": "runtime deploy contract", "status": "green", "detail": "health, rollout and rollback evidence required"},
         {"name": "runtime container artifact", "status": "green", "detail": "container build evidence without registry publication"},
+        {"name": "fly.io public runtime", "status": "green", "detail": "workflow_dispatch deploy with HTTP smoke evidence"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 91,
+        "maturity_percent": 92,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -255,6 +298,15 @@ def main(argv: list[str] | None = None) -> int:
     artifact_cmd = sub.add_parser("runtime-artifact")
     artifact_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
 
+    public_cmd = sub.add_parser("runtime-public")
+    public_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
+    public_cmd.add_argument("--app-name", default="reqsys-vscode-agent")
+    public_cmd.add_argument("--duckdns-hostname", default=None)
+
+    serve_cmd = sub.add_parser("serve")
+    serve_cmd.add_argument("--host", default="127.0.0.1")
+    serve_cmd.add_argument("--port", type=int, default=8080)
+
     inspect_cmd = sub.add_parser("inspect")
     inspect_cmd.add_argument("--workspace", required=True)
 
@@ -282,6 +334,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "runtime-artifact":
         return command_runtime_artifact(args.environment)
+
+    if args.command == "runtime-public":
+        return command_runtime_public(args.environment, args.app_name, args.duckdns_hostname)
+
+    if args.command == "serve":
+        return serve_runtime(args.host, args.port)
 
     workspace = Path(getattr(args, "workspace", ".")).resolve()
 

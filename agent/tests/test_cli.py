@@ -21,6 +21,22 @@ def test_runtime_artifact_contract_by_environment():
     assert main(["runtime-artifact", "--environment", "staging"]) == 0
 
 
+def test_runtime_public_contract():
+    assert main(["runtime-public", "--app-name", "reqsys-vscode-agent"]) == 0
+
+
+def test_runtime_public_contract_with_duckdns():
+    assert main([
+        "runtime-public",
+        "--environment",
+        "staging",
+        "--app-name",
+        "reqsys-vscode-agent",
+        "--duckdns-hostname",
+        "reqsys.duckdns.org",
+    ]) == 0
+
+
 def test_inspect(tmp_path):
     assert main(["inspect", "--workspace", str(tmp_path)]) == 0
 
