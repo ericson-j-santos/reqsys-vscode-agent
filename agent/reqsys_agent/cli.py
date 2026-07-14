@@ -5,9 +5,45 @@ import json
 import uuid
 from pathlib import Path
 
+from reqsys_agent.http_runtime import serve_runtime
 from reqsys_agent.incremental_index import build_incremental_index
 from reqsys_agent.semantic_search import semantic_search
 from reqsys_agent.workspace_reader import ask_index, read_config
+
+
+RUNTIME_ENVIRONMENTS = [
+    {
+        "name": "dev",
+        "purpose": "validar build, healthcheck e artefatos sem impacto público",
+        "required_gates": ["ci", "healthcheck", "governance-checklist"],
+        "rollback": "reverter para último commit verde na branch de integração",
+    },
+    {
+        "name": "staging",
+        "purpose": "validar release candidata com contrato próximo de produção",
+        "required_gates": ["ci", "healthcheck", "smoke-test", "rollback-plan"],
+        "rollback": "promover release anterior validada ou desfazer tag candidata",
+    },
+    {
+        "name": "production",
+        "purpose": "publicar runtime somente com evidência verde e rollback documentado",
+        "required_gates": ["ci", "healthcheck", "smoke-test", "security-gates", "approval"],
+        "rollback": "retornar para release estável anterior e registrar incidente com correlation_id",
+    },
+]
+
+RUNTIME_CONTAINER_ARTIFACT = {
+    "image_name": "reqsys-vscode-agent-runtime",
+    "dockerfile": "runtime/Dockerfile.agent",
+    "build_context": ".",
+    "evidence_path": ".reqsys/evidence/runtime-artifact",
+    "publish_registry": False,
+    "runs_as_non_root": True,
+    "startup_command": "PYTHONPATH=/app/agent python -m reqsys_agent.cli serve --host 0.0.0.0 --port 8080",
+    "readiness_command": "PYTHONPATH=/app/agent python -m reqsys_agent.cli runtime-deploy",
+}
+
+SMOKE_ENDPOINTS = ["/health", "/ready", "/runtime-deploy", "/runtime-artifact", "/runtime-public"]
 
 
 def correlation_id() -> str:
@@ -24,7 +60,7 @@ def command_health() -> int:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "version": "0.4.0",
+        "version": "0.7.0",
         "mode": "safe-readonly",
         "capabilities": [
             "workspace inspection",
@@ -33,6 +69,10 @@ def command_health() -> int:
             "incremental local index cache",
             "keyword-based local questions",
             "lightweight semantic local search",
+            "runtime public deploy readiness contract",
+            "runtime container artifact contract",
+            "runtime public HTTP service",
+            "runtime public smoke monitor contract",
         ],
         "restrictions": [
             "no automatic merge",
@@ -43,6 +83,168 @@ def command_health() -> int:
             "no external LLM required",
             "no vector database required",
         ],
+    })
+
+
+def command_runtime_deploy(environment: str | None = None) -> int:
+    environments = RUNTIME_ENVIRONMENTS
+    if environment:
+        environments = [item for item in environments if item["name"] == environment]
+
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "service": "reqsys-vscode-agent",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.DEPLOY_RUNTIME",
+        "branch": "ai/runtime-public",
+        "maturity_percent": 66,
+        "target_maturity_percent": 100,
+        "environment_count": len(environments),
+        "environments": environments,
+        "healthcheck": {
+            "command": "PYTHONPATH=agent python -m reqsys_agent.cli health",
+            "expected_status": "ok",
+            "startup_health_required": True,
+        },
+        "deploy_contract": {
+            "strategy": "small governed PRs with draft mode until CI is green",
+            "artifact_evidence": "CI logs, health output, smoke evidence and rollback note",
+            "promotion_order": ["dev", "staging", "production"],
+        },
+        "kpis": {
+            "uptime": "target >= 99.5% after public runtime exists",
+            "deploy_success_rate": "target >= 95% after pipeline stabilization",
+            "mttr": "target <= 30 minutes for rollback-supported incidents",
+            "startup_health": "required before promotion",
+        },
+        "cannot_do": [
+            "publish production without green CI evidence",
+            "claim public URL without validated runtime",
+            "bypass security gates for Auth, CORS, JWT, secrets or audit",
+            "deploy without documented rollback path",
+        ],
+        "next_increment": "add environment-specific deployment workflow after repository runtime target is selected",
+    })
+
+
+def command_runtime_artifact(environment: str | None = None) -> int:
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "service": "reqsys-vscode-agent",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.CONTAINER_ARTIFACT",
+        "branch": "ai/runtime-container-artifact",
+        "maturity_percent": 74,
+        "environment": environment or "dev",
+        "artifact": RUNTIME_CONTAINER_ARTIFACT,
+        "quality_gates": [
+            "python tests",
+            "docker build",
+            "container startup healthcheck",
+            "container deploy readiness contract",
+            "image metadata inspection",
+            "artifact evidence upload",
+        ],
+        "security_controls": [
+            "non-root container user",
+            "no secrets baked into image",
+            "no registry push in this increment",
+            "no production deployment",
+            "metadata labels for traceability",
+        ],
+        "outputs": [
+            "container-health.json",
+            "container-runtime-deploy.json",
+            "image-inspect.json",
+            "summary.md",
+        ],
+        "cannot_do": [
+            "publish image to registry without explicit target and credentials",
+            "deploy public URL from artifact workflow",
+            "claim production readiness without smoke test against public runtime",
+        ],
+        "next_increment": "choose public runtime target and add deployment job with smoke test and rollback evidence",
+    })
+
+
+def command_runtime_public(environment: str, app_name: str, duckdns_hostname: str | None) -> int:
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "service": "reqsys-vscode-agent",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.FLYIO_DUCKDNS",
+        "branch": "ai/flyio-public-deploy",
+        "maturity_percent": 82,
+        "environment": environment,
+        "target": {
+            "provider": "fly.io",
+            "app_name": app_name,
+            "fly_url": f"https://{app_name}.fly.dev",
+            "duckdns_hostname": duckdns_hostname,
+            "duckdns_url": f"https://{duckdns_hostname}" if duckdns_hostname else None,
+        },
+        "cost_guard": {
+            "auto_stop_machines": "stop",
+            "auto_start_machines": True,
+            "min_machines_running": 0,
+            "paid_database": False,
+            "persistent_volume_required": False,
+        },
+        "required_gates": [
+            "workflow_dispatch",
+            "FLY_API_TOKEN secret present",
+            "docker build",
+            "fly deploy",
+            "HTTP smoke on fly.dev",
+            "optional HTTP smoke on DuckDNS hostname",
+            "rollback hint evidence",
+        ],
+        "cannot_do": [
+            "configure DuckDNS records from GitHub without provider credentials",
+            "claim production readiness without smoke evidence",
+            "deploy production outside explicit workflow_dispatch",
+        ],
+    })
+
+
+def command_runtime_monitor(base_url: str, environment: str, duckdns_url: str | None) -> int:
+    normalized_base_url = base_url.rstrip("/")
+    normalized_duckdns_url = duckdns_url.rstrip("/") if duckdns_url else None
+    return emit({
+        "status": "ok",
+        "correlation_id": correlation_id(),
+        "service": "reqsys-vscode-agent",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.SMOKE_MONITOR",
+        "branch": "ai/flyio-smoke-monitor",
+        "maturity_percent": 86,
+        "environment": environment,
+        "targets": {
+            "primary_base_url": normalized_base_url,
+            "duckdns_url": normalized_duckdns_url,
+        },
+        "smoke_endpoints": SMOKE_ENDPOINTS,
+        "evidence_files": [
+            "monitor-contract.json",
+            "primary-health.json",
+            "primary-ready.json",
+            "primary-runtime-deploy.json",
+            "primary-runtime-artifact.json",
+            "primary-runtime-public.json",
+            "duckdns-health.json",
+            "summary.md",
+        ],
+        "success_criteria": [
+            "all primary smoke endpoints return HTTP 2xx",
+            "DuckDNS health returns HTTP 2xx when duckdns_url is provided",
+            "response payload includes status=ok for runtime endpoints",
+            "evidence artifact is uploaded",
+        ],
+        "cannot_do": [
+            "create DNS records automatically",
+            "fix Fly.io runtime without a deploy workflow run",
+            "claim uptime SLA from a single smoke run",
+        ],
+        "next_increment": "schedule governed uptime probes after public URL is stable",
     })
 
 
@@ -76,12 +278,16 @@ def command_governance(workspace: Path) -> int:
         {"name": "local context index", "status": "green", "detail": "available without LLM"},
         {"name": "incremental cache", "status": "green", "detail": "reuses unchanged indexed files"},
         {"name": "semantic local search", "status": "green", "detail": "TF-IDF/cosine without external services"},
+        {"name": "runtime deploy contract", "status": "green", "detail": "health, rollout and rollback evidence required"},
+        {"name": "runtime container artifact", "status": "green", "detail": "container build evidence without registry publication"},
+        {"name": "fly.io public runtime", "status": "green", "detail": "workflow_dispatch deploy with HTTP smoke evidence"},
+        {"name": "fly.io smoke monitor", "status": "green", "detail": "manual smoke probes with artifact evidence"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 90,
+        "maturity_percent": 93,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -135,6 +341,26 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("health")
 
+    runtime_cmd = sub.add_parser("runtime-deploy")
+    runtime_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default=None)
+
+    artifact_cmd = sub.add_parser("runtime-artifact")
+    artifact_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
+
+    public_cmd = sub.add_parser("runtime-public")
+    public_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
+    public_cmd.add_argument("--app-name", default="reqsys-vscode-agent")
+    public_cmd.add_argument("--duckdns-hostname", default=None)
+
+    monitor_cmd = sub.add_parser("runtime-monitor")
+    monitor_cmd.add_argument("--base-url", required=True)
+    monitor_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
+    monitor_cmd.add_argument("--duckdns-url", default=None)
+
+    serve_cmd = sub.add_parser("serve")
+    serve_cmd.add_argument("--host", default="127.0.0.1")
+    serve_cmd.add_argument("--port", type=int, default=8080)
+
     inspect_cmd = sub.add_parser("inspect")
     inspect_cmd.add_argument("--workspace", required=True)
 
@@ -156,6 +382,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "health":
         return command_health()
+
+    if args.command == "runtime-deploy":
+        return command_runtime_deploy(args.environment)
+
+    if args.command == "runtime-artifact":
+        return command_runtime_artifact(args.environment)
+
+    if args.command == "runtime-public":
+        return command_runtime_public(args.environment, args.app_name, args.duckdns_hostname)
+
+    if args.command == "runtime-monitor":
+        return command_runtime_monitor(args.base_url, args.environment, args.duckdns_url)
+
+    if args.command == "serve":
+        return serve_runtime(args.host, args.port)
 
     workspace = Path(getattr(args, "workspace", ".")).resolve()
 

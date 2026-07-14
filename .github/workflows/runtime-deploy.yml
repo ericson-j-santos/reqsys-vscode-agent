@@ -1,0 +1,110 @@
+name: Runtime Deploy Readiness
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/runtime-deploy.yml"
+      - "agent/**"
+      - "docs/RUNTIME_PUBLIC_DEPLOY.md"
+      - "README.md"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente alvo para validação governada"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    name: readiness
+    runs-on: ubuntu-latest
+    env:
+      SELECTED_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install agent dependencies
+        working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate selected environment
+        run: |
+          case "${SELECTED_ENVIRONMENT}" in
+            dev|staging|production)
+              echo "Selected environment: ${SELECTED_ENVIRONMENT}"
+              ;;
+            *)
+              echo "Invalid environment: ${SELECTED_ENVIRONMENT}"
+              exit 1
+              ;;
+          esac
+
+      - name: Run agent tests
+        run: PYTHONPATH=agent pytest agent/tests -q
+
+      - name: Prepare evidence directory
+        run: mkdir -p .reqsys/evidence/runtime-deploy
+
+      - name: Run startup healthcheck
+        run: |
+          PYTHONPATH=agent python -m reqsys_agent.cli health \
+            | tee .reqsys/evidence/runtime-deploy/health.json
+
+      - name: Run deploy readiness contract
+        run: |
+          PYTHONPATH=agent python -m reqsys_agent.cli runtime-deploy --environment "${SELECTED_ENVIRONMENT}" \
+            | tee .reqsys/evidence/runtime-deploy/runtime-deploy-contract.json
+
+      - name: Production safety gate
+        run: |
+          if [ "${SELECTED_ENVIRONMENT}" = "production" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Production readiness can only run by explicit workflow_dispatch."
+            exit 1
+          fi
+          echo "Production safety gate passed for ${SELECTED_ENVIRONMENT}."
+
+      - name: Write execution summary
+        run: |
+          cat > .reqsys/evidence/runtime-deploy/summary.md <<EOF
+          # Runtime Deploy Readiness Evidence
+
+          - Domain: REQSYS#002.RUNTIME_PUBLICO.DEPLOY_RUNTIME
+          - Environment: ${SELECTED_ENVIRONMENT}
+          - Workflow: ${GITHUB_WORKFLOW}
+          - Run ID: ${GITHUB_RUN_ID}
+          - Commit: ${GITHUB_SHA}
+          - Actor: ${GITHUB_ACTOR}
+          - Status: readiness checks executed
+
+          ## Evidence files
+
+          - health.json
+          - runtime-deploy-contract.json
+
+          ## Production constraint
+
+          This workflow does not publish production and does not create a public URL.
+          EOF
+
+      - name: Upload runtime deploy evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-deploy-evidence-${{ env.SELECTED_ENVIRONMENT }}
+          path: .reqsys/evidence/runtime-deploy
+          retention-days: 14

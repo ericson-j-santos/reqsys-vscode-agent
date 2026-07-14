@@ -1,0 +1,53 @@
+name: Living Architecture Docs
+
+on:
+  pull_request:
+    paths:
+      - "docs/living-architecture/**"
+      - "docs/adr/**"
+      - "tools/living_architecture_doc_drift_check.py"
+      - ".github/workflows/living-architecture-docs.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/living-architecture/**"
+      - "docs/adr/**"
+      - "tools/living_architecture_doc_drift_check.py"
+      - ".github/workflows/living-architecture-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  doc-drift-check:
+    name: living-architecture-doc-drift-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate runtime-linked docs
+        run: |
+          python tools/living_architecture_doc_drift_check.py \
+            --map docs/living-architecture/runtime-docs-map.json \
+            --report artifacts/living-architecture-report.json
+
+      - name: Upload living architecture report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: living-architecture-report
+          path: artifacts/living-architecture-report.json
+          if-no-files-found: error

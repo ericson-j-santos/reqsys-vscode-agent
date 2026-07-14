@@ -1,0 +1,233 @@
+name: Fly.io Public Deploy
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/flyio-deploy.yml"
+      - "fly.toml"
+      - "runtime/**"
+      - "agent/**"
+      - "docs/**"
+      - "README.md"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente lógico alvo"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      app_name:
+        description: "Nome do app no Fly.io"
+        required: true
+        default: "reqsys-vscode-agent"
+        type: string
+      duckdns_hostname:
+        description: "Hostname DuckDNS opcional, sem https://"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-flyio-runtime:
+    name: validate-flyio-runtime
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: reqsys-vscode-agent-flyio:${{ github.sha }}
+      EVIDENCE_DIR: .reqsys/evidence/flyio-validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install agent dependencies
+        working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run agent tests
+        run: PYTHONPATH=agent pytest agent/tests -q
+
+      - name: Build Fly.io runtime image locally
+        run: docker build -f runtime/Dockerfile.agent -t "${IMAGE_TAG}" .
+
+      - name: Run local container
+        run: |
+          docker run -d --rm \
+            --name reqsys-flyio-smoke \
+            -p 8080:8080 \
+            -e REQSYS_RUNTIME_ENVIRONMENT=dev \
+            -e FLY_APP_NAME=reqsys-vscode-agent \
+            "${IMAGE_TAG}"
+
+      - name: Local HTTP smoke test
+        run: |
+          mkdir -p "${EVIDENCE_DIR}"
+          for path in /health /ready /runtime-deploy /runtime-artifact /runtime-public; do
+            curl --fail --show-error --silent --retry 10 --retry-delay 2 \
+              "http://127.0.0.1:8080${path}" \
+              | tee "${EVIDENCE_DIR}/$(echo "${path}" | tr '/' '_' | sed 's/^_//').json"
+          done
+
+      - name: Stop local container
+        if: always()
+        run: docker stop reqsys-flyio-smoke || true
+
+      - name: Write validation summary
+        run: |
+          cat > "${EVIDENCE_DIR}/summary.md" <<EOF
+          # Fly.io Runtime Validation Evidence
+
+          - Domain: REQSYS#002.RUNTIME_PUBLICO.FLYIO_DUCKDNS
+          - Mode: pull_request validation only
+          - Commit: ${GITHUB_SHA}
+          - Workflow: ${GITHUB_WORKFLOW}
+          - Run ID: ${GITHUB_RUN_ID}
+          - Status: local container smoke test executed
+
+          ## Explicit constraints
+
+          This validation job does not deploy to Fly.io, does not create DNS records and does not publish production.
+          EOF
+
+      - name: Upload Fly.io validation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: flyio-runtime-validation-evidence
+          path: .reqsys/evidence/flyio-validate
+          retention-days: 14
+
+  deploy-flyio:
+    name: deploy-flyio
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate-flyio-runtime
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      SELECTED_ENVIRONMENT: ${{ github.event.inputs.environment }}
+      FLY_APP_NAME: ${{ github.event.inputs.app_name }}
+      DUCKDNS_HOSTNAME: ${{ github.event.inputs.duckdns_hostname }}
+      EVIDENCE_DIR: .reqsys/evidence/flyio-deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install agent dependencies
+        working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate deployment inputs
+        run: |
+          case "${SELECTED_ENVIRONMENT}" in
+            dev|staging|production)
+              echo "Selected environment: ${SELECTED_ENVIRONMENT}"
+              ;;
+            *)
+              echo "Invalid environment: ${SELECTED_ENVIRONMENT}"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            echo "Missing required GitHub secret: FLY_API_TOKEN"
+            exit 1
+          fi
+
+          if [ -z "${FLY_APP_NAME}" ]; then
+            echo "Missing required input: app_name"
+            exit 1
+          fi
+
+      - name: Run tests before deploy
+        run: PYTHONPATH=agent pytest agent/tests -q
+
+      - name: Prepare deployment evidence
+        run: mkdir -p "${EVIDENCE_DIR}"
+
+      - name: Emit public runtime contract
+        run: |
+          PYTHONPATH=agent python -m reqsys_agent.cli runtime-public \
+            --environment "${SELECTED_ENVIRONMENT}" \
+            --app-name "${FLY_APP_NAME}" \
+            --duckdns-hostname "${DUCKDNS_HOSTNAME}" \
+            | tee "${EVIDENCE_DIR}/runtime-public-contract.json"
+
+      - name: Deploy to Fly.io
+        run: |
+          flyctl deploy \
+            --config fly.toml \
+            --app "${FLY_APP_NAME}" \
+            --remote-only \
+            --strategy rolling \
+            --wait-timeout 10m
+
+      - name: Smoke test Fly.io URL
+        run: |
+          FLY_URL="https://${FLY_APP_NAME}.fly.dev"
+          echo "${FLY_URL}" > "${EVIDENCE_DIR}/fly-url.txt"
+          for path in /health /ready /runtime-deploy /runtime-artifact /runtime-public; do
+            curl --fail --show-error --silent --retry 12 --retry-delay 5 \
+              "${FLY_URL}${path}?environment=${SELECTED_ENVIRONMENT}" \
+              | tee "${EVIDENCE_DIR}/fly$(echo "${path}" | tr '/' '_' | sed 's/^_//').json"
+          done
+
+      - name: Smoke test DuckDNS URL when provided
+        if: ${{ github.event.inputs.duckdns_hostname != '' }}
+        run: |
+          DUCKDNS_URL="https://${DUCKDNS_HOSTNAME}"
+          echo "${DUCKDNS_URL}" > "${EVIDENCE_DIR}/duckdns-url.txt"
+          curl --fail --show-error --silent --retry 12 --retry-delay 5 \
+            "${DUCKDNS_URL}/health" \
+            | tee "${EVIDENCE_DIR}/duckdns-health.json"
+
+      - name: Capture Fly.io status
+        run: flyctl status --app "${FLY_APP_NAME}" > "${EVIDENCE_DIR}/fly-status.txt"
+
+      - name: Write deployment summary
+        run: |
+          cat > "${EVIDENCE_DIR}/summary.md" <<EOF
+          # Fly.io Public Deploy Evidence
+
+          - Domain: REQSYS#002.RUNTIME_PUBLICO.FLYIO_DUCKDNS
+          - Environment: ${SELECTED_ENVIRONMENT}
+          - Fly app: ${FLY_APP_NAME}
+          - Fly URL: https://${FLY_APP_NAME}.fly.dev
+          - DuckDNS hostname: ${DUCKDNS_HOSTNAME}
+          - Workflow: ${GITHUB_WORKFLOW}
+          - Run ID: ${GITHUB_RUN_ID}
+          - Commit: ${GITHUB_SHA}
+          - Actor: ${GITHUB_ACTOR}
+          - Status: deploy and smoke tests executed
+
+          ## Rollback hint
+
+          Use Fly.io releases/history for the app and redeploy the previous known-good commit/image if smoke tests or runtime health regress.
+          EOF
+
+      - name: Upload Fly.io deployment evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: flyio-public-deploy-evidence-${{ env.SELECTED_ENVIRONMENT }}
+          path: .reqsys/evidence/flyio-deploy
+          retention-days: 14
