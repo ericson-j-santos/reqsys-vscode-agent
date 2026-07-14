@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-06-25T00:00:00+00:00",
+  "scope": "REQSYS#007.LIVING_ARCHITECTURE",
+  "mode": "warning-first",
+  "map_path": "docs/living-architecture/runtime-docs-map.json",
+  "totals": {
+    "components": 5,
+    "expected_docs": 11,
+    "existing_docs": 11,
+    "missing_docs": 0,
+    "metadata_warnings": 0,
+    "findings": 0
+  },
+  "coverage_percent": 100.0,
+  "status": "passed",
+  "findings": [],
+  "components": []
+}
