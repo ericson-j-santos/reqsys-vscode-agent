@@ -1,0 +1,219 @@
+name: Fly.io Smoke Monitor
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/flyio-smoke-monitor.yml"
+      - "agent/**"
+      - "docs/FLYIO_SMOKE_MONITOR.md"
+      - "README.md"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente lógico monitorado"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      base_url:
+        description: "URL base principal, ex: https://reqsys-vscode-agent.fly.dev"
+        required: true
+        type: string
+      duckdns_url:
+        description: "URL DuckDNS opcional, ex: https://reqsys.duckdns.org"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-monitor-contract:
+    name: validate-monitor-contract
+    runs-on: ubuntu-latest
+    env:
+      EVIDENCE_DIR: .reqsys/evidence/flyio-smoke-monitor-validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install agent dependencies
+        working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run agent tests
+        run: PYTHONPATH=agent pytest agent/tests -q
+
+      - name: Emit monitor contract locally
+        run: |
+          mkdir -p "${EVIDENCE_DIR}"
+          PYTHONPATH=agent python -m reqsys_agent.cli runtime-monitor \
+            --base-url "https://reqsys-vscode-agent.fly.dev" \
+            --environment dev \
+            | tee "${EVIDENCE_DIR}/monitor-contract.json"
+
+      - name: Write validation summary
+        run: |
+          cat > "${EVIDENCE_DIR}/summary.md" <<EOF
+          # Fly.io Smoke Monitor Contract Validation
+
+          - Domain: REQSYS#002.RUNTIME_PUBLICO.SMOKE_MONITOR
+          - Mode: pull_request validation only
+          - Commit: ${GITHUB_SHA}
+          - Workflow: ${GITHUB_WORKFLOW}
+          - Run ID: ${GITHUB_RUN_ID}
+          - Status: monitor contract validated
+
+          ## Explicit constraints
+
+          This validation job does not call public URLs, does not deploy and does not create DNS records.
+          EOF
+
+      - name: Upload monitor validation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: flyio-smoke-monitor-validation-evidence
+          path: .reqsys/evidence/flyio-smoke-monitor-validate
+          retention-days: 14
+
+  smoke-monitor:
+    name: smoke-monitor
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate-monitor-contract
+    runs-on: ubuntu-latest
+    env:
+      SELECTED_ENVIRONMENT: ${{ github.event.inputs.environment }}
+      BASE_URL: ${{ github.event.inputs.base_url }}
+      DUCKDNS_URL: ${{ github.event.inputs.duckdns_url }}
+      EVIDENCE_DIR: .reqsys/evidence/flyio-smoke-monitor
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install agent dependencies
+        working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate monitor inputs
+        run: |
+          case "${SELECTED_ENVIRONMENT}" in
+            dev|staging|production)
+              echo "Selected environment: ${SELECTED_ENVIRONMENT}"
+              ;;
+            *)
+              echo "Invalid environment: ${SELECTED_ENVIRONMENT}"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${BASE_URL}" ]; then
+            echo "Missing required input: base_url"
+            exit 1
+          fi
+
+          case "${BASE_URL}" in
+            https://*) echo "Base URL is HTTPS" ;;
+            *) echo "base_url must start with https://"; exit 1 ;;
+          esac
+
+      - name: Prepare monitor evidence
+        run: mkdir -p "${EVIDENCE_DIR}"
+
+      - name: Emit monitor contract
+        run: |
+          PYTHONPATH=agent python -m reqsys_agent.cli runtime-monitor \
+            --environment "${SELECTED_ENVIRONMENT}" \
+            --base-url "${BASE_URL}" \
+            --duckdns-url "${DUCKDNS_URL}" \
+            | tee "${EVIDENCE_DIR}/monitor-contract.json"
+
+      - name: Smoke primary URL
+        run: |
+          NORMALIZED_BASE_URL="${BASE_URL%/}"
+          echo "${NORMALIZED_BASE_URL}" > "${EVIDENCE_DIR}/primary-base-url.txt"
+          for path in /health /ready /runtime-deploy /runtime-artifact /runtime-public; do
+            started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            output_file="${EVIDENCE_DIR}/primary$(echo "${path}" | tr '/' '_' | sed 's/^_//').json"
+            status_file="${EVIDENCE_DIR}/primary$(echo "${path}" | tr '/' '_' | sed 's/^_//')-status.txt"
+            http_code=$(curl --location --silent --show-error \
+              --retry 12 --retry-delay 5 \
+              --output "${output_file}" \
+              --write-out "%{http_code}" \
+              "${NORMALIZED_BASE_URL}${path}?environment=${SELECTED_ENVIRONMENT}")
+            ended_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            printf "path=%s\nhttp_code=%s\nstarted_at=%s\nended_at=%s\n" \
+              "${path}" "${http_code}" "${started_at}" "${ended_at}" > "${status_file}"
+            case "${http_code}" in
+              2*) echo "${path} OK with ${http_code}" ;;
+              *) echo "${path} failed with ${http_code}"; cat "${output_file}"; exit 1 ;;
+            esac
+          done
+
+      - name: Smoke DuckDNS URL when provided
+        if: ${{ github.event.inputs.duckdns_url != '' }}
+        run: |
+          NORMALIZED_DUCKDNS_URL="${DUCKDNS_URL%/}"
+          echo "${NORMALIZED_DUCKDNS_URL}" > "${EVIDENCE_DIR}/duckdns-url.txt"
+          http_code=$(curl --location --silent --show-error \
+            --retry 12 --retry-delay 5 \
+            --output "${EVIDENCE_DIR}/duckdns-health.json" \
+            --write-out "%{http_code}" \
+            "${NORMALIZED_DUCKDNS_URL}/health")
+          printf "path=/health\nhttp_code=%s\n" "${http_code}" > "${EVIDENCE_DIR}/duckdns-health-status.txt"
+          case "${http_code}" in
+            2*) echo "DuckDNS health OK with ${http_code}" ;;
+            *) echo "DuckDNS health failed with ${http_code}"; cat "${EVIDENCE_DIR}/duckdns-health.json"; exit 1 ;;
+          esac
+
+      - name: Write monitor summary
+        run: |
+          cat > "${EVIDENCE_DIR}/summary.md" <<EOF
+          # Fly.io Smoke Monitor Evidence
+
+          - Domain: REQSYS#002.RUNTIME_PUBLICO.SMOKE_MONITOR
+          - Environment: ${SELECTED_ENVIRONMENT}
+          - Primary URL: ${BASE_URL}
+          - DuckDNS URL: ${DUCKDNS_URL}
+          - Workflow: ${GITHUB_WORKFLOW}
+          - Run ID: ${GITHUB_RUN_ID}
+          - Commit: ${GITHUB_SHA}
+          - Actor: ${GITHUB_ACTOR}
+          - Status: smoke monitor executed
+
+          ## Monitored endpoints
+
+          - /health
+          - /ready
+          - /runtime-deploy
+          - /runtime-artifact
+          - /runtime-public
+
+          ## Constraint
+
+          This workflow validates availability and readiness. It does not deploy, rollback, mutate DNS or modify secrets.
+          EOF
+
+      - name: Upload smoke monitor evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: flyio-smoke-monitor-evidence-${{ env.SELECTED_ENVIRONMENT }}
+          path: .reqsys/evidence/flyio-smoke-monitor
+          retention-days: 14

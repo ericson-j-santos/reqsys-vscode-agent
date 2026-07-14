@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>REQSYS#007 — Documentação Viva</title>
+  <style>
+    :root {
+      --azul: #005ca9;
+      --laranja: #f39200;
+      --verde: #00a36c;
+      --amarelo: #f2c94c;
+      --vermelho: #c0392b;
+      --cinza-0: #ffffff;
+      --cinza-1: #f5f7fb;
+      --cinza-2: #d9e1ec;
+      --cinza-3: #637083;
+      --texto: #1f2937;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--cinza-1);
+      color: var(--texto);
+      line-height: 1.45;
+    }
+    header {
+      background: linear-gradient(135deg, var(--azul), #003d73);
+      color: #fff;
+      padding: 28px 20px;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 20px; }
+    h1, h2, h3 { margin-top: 0; }
+    .subtitle { opacity: .92; max-width: 920px; }
+    .grid { display: grid; gap: 16px; }
+    .grid.cards { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    .card {
+      background: var(--cinza-0);
+      border: 1px solid var(--cinza-2);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .kpi { font-size: 2rem; font-weight: 700; margin: 6px 0; }
+    .label { color: var(--cinza-3); font-size: .92rem; }
+    .status { display: inline-block; border-radius: 999px; padding: 4px 10px; font-size: .82rem; font-weight: 700; }
+    .ok { background: #e8f7ef; color: #126b43; }
+    .warn { background: #fff7df; color: #8a6500; }
+    .risk { background: #fdecea; color: #922b21; }
+    .info { background: #e8f4ff; color: #004f91; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; }
+    th, td { padding: 11px 12px; border-bottom: 1px solid var(--cinza-2); text-align: left; vertical-align: top; }
+    th { background: #eef4fb; color: #243447; }
+    .section { margin-top: 22px; }
+    .flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    .node { border: 1px solid var(--cinza-2); border-left: 5px solid var(--azul); background: #fff; border-radius: 12px; padding: 14px; min-height: 86px; }
+    .node.ops { border-left-color: var(--laranja); }
+    .node.docs { border-left-color: var(--azul); background: #f8fbff; }
+    .node.auto { border-left-color: var(--verde); }
+    .footer { color: var(--cinza-3); font-size: .85rem; margin-top: 24px; }
+    code { background: #f0f3f7; padding: 2px 5px; border-radius: 5px; }
+    @media (max-width: 720px) {
+      header { padding: 22px 16px; }
+      main { padding: 14px; }
+      .kpi { font-size: 1.6rem; }
+      table { font-size: .9rem; }
+      th, td { padding: 9px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>REQSYS#007 — Documentação Viva / Arquitetura Viva</h1>
+    <p class="subtitle">Painel HTML autocontido para consolidar ADRs, diagramas vivos, runtime-linked docs, changelog, governança, analytics docs e architecture graph.</p>
+    <p><strong>Branch:</strong> <code>ai/living-architecture</code> · <strong>Atualizado em:</strong> 2026-06-25 · <strong>Status:</strong> baseline inicial</p>
+  </header>
+
+  <main>
+    <section class="grid cards">
+      <article class="card">
+        <div class="label">Maturidade alvo operacional</div>
+        <div class="kpi">84%</div>
+        <span class="status info">Alvo, não evidência final</span>
+      </article>
+      <article class="card">
+        <div class="label">Cobertura documental inicial</div>
+        <div class="kpi">57,14%</div>
+        <span class="status warn">Parcial</span>
+      </article>
+      <article class="card">
+        <div class="label">Automação documental</div>
+        <div class="kpi">0%</div>
+        <span class="status risk">Pendente</span>
+      </article>
+      <article class="card">
+        <div class="label">Grafo arquitetural</div>
+        <div class="kpi">100%</div>
+        <span class="status ok">Baseline criado</span>
+      </article>
+    </section>
+
+    <section class="section card">
+      <h2>Architecture graph executivo</h2>
+      <div class="flow">
+        <div class="node ops"><strong>Runtime Público</strong><br />Ambientes, health checks, rollout e rollback.</div>
+        <div class="node ops"><strong>CI/CD Governado</strong><br />Branch policies, security gates e artifacts.</div>
+        <div class="node ops"><strong>Observabilidade</strong><br />Logs, métricas, traces e dashboards.</div>
+        <div class="node ops"><strong>UX/UI Operacional</strong><br />Navegação, responsividade e drill-down.</div>
+        <div class="node docs"><strong>Documentação Viva</strong><br />ADRs, diagramas, changelog, governança e analytics.</div>
+        <div class="node auto"><strong>Automação Autônoma</strong><br />Remediação assistida, alertas e relatórios de intervenção.</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Matriz de cobertura</h2>
+      <table aria-label="Matriz de cobertura documental">
+        <thead>
+          <tr><th>Domínio</th><th>Documento vivo</th><th>Status</th><th>Risco</th><th>Próxima ação</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Runtime Público</td><td>README + runtime-docs-map</td><td><span class="status warn">Parcial</span></td><td>Médio</td><td>Validar contra health checks reais.</td></tr>
+          <tr><td>CI/CD Governado</td><td>governance.md</td><td><span class="status warn">Parcial</span></td><td>Médio</td><td>Criar verificador de drift documental.</td></tr>
+          <tr><td>Observabilidade</td><td>analytics.md</td><td><span class="status warn">Parcial</span></td><td>Médio</td><td>Publicar artifact JSON de métricas.</td></tr>
+          <tr><td>UX/UI Operacional</td><td>index.html</td><td><span class="status ok">Inicial</span></td><td>Baixo</td><td>Integrar navegação ao runtime.</td></tr>
+          <tr><td>ADRs</td><td>ADR futuro</td><td><span class="status risk">Aberto</span></td><td>Alto</td><td>Criar ADR canônico da arquitetura viva.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section card">
+      <h2>Gates de governança</h2>
+      <ul>
+        <li>Não declarar maturidade consolidada sem evidência real.</li>
+        <li>Não publicar URL pública como estável sem CI/health check verde.</li>
+        <li>Não expor tokens, secrets, CPF, PII ou connection strings em documentação.</li>
+        <li>Não duplicar documentação canônica sem índice e owner.</li>
+        <li>Não alterar produção nesta frente sem alinhamento com IA Governança/CI.</li>
+      </ul>
+    </section>
+
+    <section class="section card">
+      <h2>Próximo incremento recomendado</h2>
+      <p>Implementar um validador automatizado para ler <code>runtime-docs-map.json</code>, verificar existência dos documentos, metadados mínimos e gerar um artifact <code>living-architecture-report.json</code> no CI.</p>
+    </section>
+
+    <p class="footer">REQSYS#007 · IA_DOCUMENTACAO_VIVA · HTML autocontido · Sem CDN · Compatível com leitura offline e versionamento Git.</p>
+  </main>
+</body>
+</html>

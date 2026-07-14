@@ -1,0 +1,52 @@
+flowchart TD
+    A[ReqSys v2 Enterprise] --> B[Runtime Público]
+    A --> C[CI/CD Governado]
+    A --> D[Observabilidade]
+    A --> E[UX/UI Operacional]
+    A --> F[Documentação Viva]
+    A --> G[Automação Autônoma]
+
+    B --> B1[Ambientes: dev / staging / produção]
+    B --> B2[Health checks]
+    B --> B3[Rollout e rollback]
+
+    C --> C1[Branch policies]
+    C --> C2[Security gates]
+    C --> C3[Artifacts de evidência]
+    C --> C4[PR checks]
+
+    D --> D1[Logs estruturados]
+    D --> D2[Métricas]
+    D --> D3[Traces]
+    D --> D4[Dashboards]
+
+    E --> E1[Dashboards responsivos]
+    E --> E2[Drill-down operacional]
+    E --> E3[Design guidelines]
+
+    F --> F1[ADRs]
+    F --> F2[Diagramas vivos]
+    F --> F3[Runtime-linked docs]
+    F --> F4[Changelog]
+    F --> F5[Governance docs]
+    F --> F6[Analytics docs]
+    F --> F7[Architecture graph]
+
+    G --> G1[Remediação assistida]
+    G --> G2[Alertas]
+    G --> G3[Relatórios de intervenção]
+
+    F3 -. valida .-> B2
+    F3 -. referencia .-> C3
+    F6 -. consome .-> D2
+    F2 -. explica .-> A
+    F5 -. governa .-> C1
+    F4 -. rastreia .-> C4
+
+    classDef core fill:#f5f5f5,stroke:#333,stroke-width:1px
+    classDef docs fill:#e8f4ff,stroke:#005ca9,stroke-width:1px
+    classDef ops fill:#fff4e6,stroke:#f39200,stroke-width:1px
+
+    class A core
+    class F,F1,F2,F3,F4,F5,F6,F7 docs
+    class B,C,D,E,G ops
