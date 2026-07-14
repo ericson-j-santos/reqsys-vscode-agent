@@ -71,6 +71,13 @@ def test_build_index(tmp_path):
     assert (tmp_path / ".reqsys" / "index.json").exists()
 
 
+def test_build_index_incremental_cache(tmp_path):
+    (tmp_path / "README.md").write_text("# ReqSys\n\nWorkflow documentation.", encoding="utf-8")
+    assert main(["build-index", "--workspace", str(tmp_path)]) == 0
+    assert main(["build-index", "--workspace", str(tmp_path)]) == 0
+    assert (tmp_path / ".reqsys" / "index-state.json").exists()
+
+
 def test_ask(tmp_path):
     (tmp_path / "README.md").write_text("# ReqSys\n\nCI workflows and guardrails.", encoding="utf-8")
     assert main(["ask", "--workspace", str(tmp_path), "--question", "Quais workflows existem?"]) == 0
