@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 SERVICE_NAME = "reqsys-vscode-agent"
-SERVICE_VERSION = "0.6.0"
+SERVICE_VERSION = "0.7.0"
 VALID_ENVIRONMENTS = {"dev", "staging", "production"}
 
 
@@ -20,6 +20,11 @@ def normalize_environment(value: str | None) -> str:
     if value in VALID_ENVIRONMENTS:
         return value
     return "dev"
+
+
+def runtime_setting(primary_name: str, legacy_name: str, default: str = "") -> str:
+    """Read a non-reserved ReqSys runtime variable with legacy fallback."""
+    return os.environ.get(primary_name) or os.environ.get(legacy_name) or default
 
 
 def health_payload() -> dict:
@@ -39,6 +44,7 @@ def readiness_payload(environment: str) -> dict:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
         "environment": environment,
         "startup_health": True,
         "production_blocked_without_workflow_dispatch": True,
@@ -50,6 +56,7 @@ def runtime_deploy_payload(environment: str) -> dict:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
         "domain": "REQSYS#002.RUNTIME_PUBLICO.DEPLOY_RUNTIME",
         "environment": environment,
         "promotion_order": ["dev", "staging", "production"],
@@ -67,6 +74,7 @@ def runtime_artifact_payload(environment: str) -> dict:
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
         "domain": "REQSYS#002.RUNTIME_PUBLICO.CONTAINER_ARTIFACT",
         "environment": environment,
         "image_name": "reqsys-vscode-agent-runtime",
@@ -76,20 +84,33 @@ def runtime_artifact_payload(environment: str) -> dict:
 
 
 def runtime_public_payload(environment: str) -> dict:
-    fly_app_name = os.environ.get("FLY_APP_NAME", "reqsys-vscode-agent")
-    duckdns_hostname = os.environ.get("DUCKDNS_HOSTNAME", "")
+    fly_app_name = runtime_setting(
+        "REQSYS_FLY_APP_NAME",
+        "FLY_APP_NAME",
+        "reqsys-vscode-agent",
+    )
+    duckdns_hostname = runtime_setting(
+        "REQSYS_DUCKDNS_HOSTNAME",
+        "DUCKDNS_HOSTNAME",
+    )
     duckdns_url = f"https://{duckdns_hostname}" if duckdns_hostname else None
     return {
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": SERVICE_NAME,
+        "version": SERVICE_VERSION,
         "domain": "REQSYS#002.RUNTIME_PUBLICO.FLYIO_DUCKDNS",
         "environment": environment,
         "fly_app_name": fly_app_name,
         "fly_url": f"https://{fly_app_name}.fly.dev",
         "duckdns_hostname": duckdns_hostname or None,
         "duckdns_url": duckdns_url,
-        "smoke_paths": ["/health", "/ready", "/runtime-deploy", "/runtime-artifact"],
+        "smoke_paths": ["/health", "/ready", "/runtime-deploy", "/runtime-artifact", "/runtime-public"],
+        "runtime_configuration": {
+            "fly_app_variable": "REQSYS_FLY_APP_NAME",
+            "duckdns_variable": "REQSYS_DUCKDNS_HOSTNAME",
+            "legacy_fallback_enabled": True,
+        },
         "cost_guard": {
             "auto_stop_machines": "stop",
             "auto_start_machines": True,

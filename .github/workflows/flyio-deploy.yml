@@ -62,39 +62,85 @@ jobs:
       - name: Build Fly.io runtime image locally
         run: docker build -f runtime/Dockerfile.agent -t "${IMAGE_TAG}" .
 
-      - name: Run local container
+      - name: Run local container with injected metadata
         run: |
           docker run -d --rm \
             --name reqsys-flyio-smoke \
             -p 8080:8080 \
             -e REQSYS_RUNTIME_ENVIRONMENT=dev \
-            -e FLY_APP_NAME=reqsys-vscode-agent \
+            -e REQSYS_FLY_APP_NAME=reqsys-vscode-agent \
+            -e REQSYS_DUCKDNS_HOSTNAME=reqsys.duckdns.org \
             "${IMAGE_TAG}"
+
+      - name: Wait for local runtime health
+        run: |
+          mkdir -p "${EVIDENCE_DIR}"
+          for attempt in $(seq 1 30); do
+            if curl --fail --show-error --silent \
+              --connect-timeout 2 --max-time 5 \
+              --output "${EVIDENCE_DIR}/health.json" \
+              "http://127.0.0.1:8080/health"; then
+              echo "Local runtime became healthy on attempt ${attempt}."
+              exit 0
+            fi
+
+            if [ "${attempt}" -eq 30 ]; then
+              echo "Local runtime did not become healthy."
+              docker logs reqsys-flyio-smoke || true
+              exit 1
+            fi
+
+            sleep 1
+          done
 
       - name: Local HTTP smoke test
         run: |
-          mkdir -p "${EVIDENCE_DIR}"
-          for path in /health /ready /runtime-deploy /runtime-artifact /runtime-public; do
-            curl --fail --show-error --silent --retry 10 --retry-delay 2 \
+          for path in /ready /runtime-deploy /runtime-artifact /runtime-public; do
+            name="${path#/}"
+            curl --fail --show-error --silent \
+              --retry 10 --retry-all-errors --retry-delay 1 \
+              --connect-timeout 2 --max-time 10 \
               "http://127.0.0.1:8080${path}" \
-              | tee "${EVIDENCE_DIR}/$(echo "${path}" | tr '/' '_' | sed 's/^_//').json"
+              | tee "${EVIDENCE_DIR}/${name}.json"
           done
+
+      - name: Validate local runtime metadata
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          evidence = Path(".reqsys/evidence/flyio-validate")
+          health = json.loads((evidence / "health.json").read_text(encoding="utf-8"))
+          runtime = json.loads((evidence / "runtime-public.json").read_text(encoding="utf-8"))
+
+          assert health["status"] == "ok"
+          assert health["version"] == "0.7.0"
+          assert runtime["version"] == "0.7.0"
+          assert runtime["fly_app_name"] == "reqsys-vscode-agent"
+          assert runtime["duckdns_hostname"] == "reqsys.duckdns.org"
+          assert runtime["runtime_configuration"]["fly_app_variable"] == "REQSYS_FLY_APP_NAME"
+          assert runtime["runtime_configuration"]["duckdns_variable"] == "REQSYS_DUCKDNS_HOSTNAME"
+          PY
 
       - name: Stop local container
         if: always()
         run: docker stop reqsys-flyio-smoke || true
 
       - name: Write validation summary
+        if: always()
         run: |
+          mkdir -p "${EVIDENCE_DIR}"
           cat > "${EVIDENCE_DIR}/summary.md" <<EOF
           # Fly.io Runtime Validation Evidence
 
           - Domain: REQSYS#002.RUNTIME_PUBLICO.FLYIO_DUCKDNS
           - Mode: pull_request validation only
+          - Runtime version: 0.7.0
           - Commit: ${GITHUB_SHA}
           - Workflow: ${GITHUB_WORKFLOW}
           - Run ID: ${GITHUB_RUN_ID}
-          - Status: local container smoke test executed
+          - Status: local container readiness, smoke and metadata injection validation executed
 
           ## Explicit constraints
 
@@ -102,6 +148,7 @@ jobs:
           EOF
 
       - name: Upload Fly.io validation evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flyio-runtime-validation-evidence
@@ -123,8 +170,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Setup flyctl 0.4.49
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+        with:
+          version: "0.4.49"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -154,8 +203,18 @@ jobs:
             exit 1
           fi
 
-          if [ -z "${FLY_APP_NAME}" ]; then
-            echo "Missing required input: app_name"
+          if ! printf '%s' "${FLY_APP_NAME}" | grep -Eq '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'; then
+            echo "Invalid Fly.io app name: ${FLY_APP_NAME}"
+            exit 1
+          fi
+
+          if [ -n "${DUCKDNS_HOSTNAME}" ] && ! printf '%s' "${DUCKDNS_HOSTNAME}" | grep -Eq '^[a-z0-9-]+\.duckdns\.org$'; then
+            echo "duckdns_hostname must be a hostname ending in .duckdns.org and must not include a URL scheme"
+            exit 1
+          fi
+
+          if [ "${SELECTED_ENVIRONMENT}" = "production" ] && [ -z "${DUCKDNS_HOSTNAME}" ]; then
+            echo "Production requires an explicit DuckDNS hostname"
             exit 1
           fi
 
@@ -173,38 +232,82 @@ jobs:
             --duckdns-hostname "${DUCKDNS_HOSTNAME}" \
             | tee "${EVIDENCE_DIR}/runtime-public-contract.json"
 
-      - name: Deploy to Fly.io
+      - name: Capture pre-deploy releases
+        run: |
+          flyctl releases --app "${FLY_APP_NAME}" --image --json \
+            > "${EVIDENCE_DIR}/releases-before.json" 2> "${EVIDENCE_DIR}/releases-before-error.txt" \
+            || printf '[]\n' > "${EVIDENCE_DIR}/releases-before.json"
+
+      - name: Deploy to Fly.io with runtime metadata
         run: |
           flyctl deploy \
             --config fly.toml \
             --app "${FLY_APP_NAME}" \
             --remote-only \
             --strategy rolling \
-            --wait-timeout 10m
+            --wait-timeout 10m \
+            --ha=false \
+            --image-label "${GITHUB_SHA}" \
+            --env "REQSYS_RUNTIME_ENVIRONMENT=${SELECTED_ENVIRONMENT}" \
+            --env "REQSYS_FLY_APP_NAME=${FLY_APP_NAME}" \
+            --env "REQSYS_DUCKDNS_HOSTNAME=${DUCKDNS_HOSTNAME}"
 
       - name: Smoke test Fly.io URL
         run: |
           FLY_URL="https://${FLY_APP_NAME}.fly.dev"
           echo "${FLY_URL}" > "${EVIDENCE_DIR}/fly-url.txt"
           for path in /health /ready /runtime-deploy /runtime-artifact /runtime-public; do
-            curl --fail --show-error --silent --retry 12 --retry-delay 5 \
+            name="${path#/}"
+            curl --fail --show-error --silent \
+              --retry 12 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 5 --max-time 30 \
               "${FLY_URL}${path}?environment=${SELECTED_ENVIRONMENT}" \
-              | tee "${EVIDENCE_DIR}/fly$(echo "${path}" | tr '/' '_' | sed 's/^_//').json"
+              | tee "${EVIDENCE_DIR}/fly-${name}.json"
           done
+
+      - name: Validate deployed runtime metadata
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = Path(os.environ["EVIDENCE_DIR"])
+          health = json.loads((evidence / "fly-health.json").read_text(encoding="utf-8"))
+          runtime = json.loads((evidence / "fly-runtime-public.json").read_text(encoding="utf-8"))
+          expected_duckdns = os.environ.get("DUCKDNS_HOSTNAME") or None
+
+          assert health["status"] == "ok"
+          assert health["version"] == "0.7.0"
+          assert runtime["status"] == "ok"
+          assert runtime["version"] == "0.7.0"
+          assert runtime["environment"] == os.environ["SELECTED_ENVIRONMENT"]
+          assert runtime["fly_app_name"] == os.environ["FLY_APP_NAME"]
+          assert runtime["duckdns_hostname"] == expected_duckdns
+          PY
 
       - name: Smoke test DuckDNS URL when provided
         if: ${{ github.event.inputs.duckdns_hostname != '' }}
         run: |
           DUCKDNS_URL="https://${DUCKDNS_HOSTNAME}"
           echo "${DUCKDNS_URL}" > "${EVIDENCE_DIR}/duckdns-url.txt"
-          curl --fail --show-error --silent --retry 12 --retry-delay 5 \
+          curl --fail --show-error --silent \
+            --retry 12 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 5 --max-time 30 \
             "${DUCKDNS_URL}/health" \
             | tee "${EVIDENCE_DIR}/duckdns-health.json"
 
-      - name: Capture Fly.io status
-        run: flyctl status --app "${FLY_APP_NAME}" > "${EVIDENCE_DIR}/fly-status.txt"
+      - name: Capture Fly.io diagnostics and release history
+        if: always()
+        run: |
+          mkdir -p "${EVIDENCE_DIR}"
+          flyctl status --app "${FLY_APP_NAME}" \
+            > "${EVIDENCE_DIR}/fly-status.txt" 2>&1 || true
+          flyctl releases --app "${FLY_APP_NAME}" --image --json \
+            > "${EVIDENCE_DIR}/releases-after.json" 2> "${EVIDENCE_DIR}/releases-after-error.txt" || true
 
       - name: Write deployment summary
+        if: always()
         run: |
           cat > "${EVIDENCE_DIR}/summary.md" <<EOF
           # Fly.io Public Deploy Evidence
@@ -214,18 +317,22 @@ jobs:
           - Fly app: ${FLY_APP_NAME}
           - Fly URL: https://${FLY_APP_NAME}.fly.dev
           - DuckDNS hostname: ${DUCKDNS_HOSTNAME}
+          - Runtime version: 0.7.0
+          - Flyctl version: 0.4.49
           - Workflow: ${GITHUB_WORKFLOW}
           - Run ID: ${GITHUB_RUN_ID}
           - Commit: ${GITHUB_SHA}
+          - Image label: ${GITHUB_SHA}
           - Actor: ${GITHUB_ACTOR}
-          - Status: deploy and smoke tests executed
+          - Job status: ${{ job.status }}
 
-          ## Rollback hint
+          ## Rollback procedure
 
-          Use Fly.io releases/history for the app and redeploy the previous known-good commit/image if smoke tests or runtime health regress.
+          Consult docs/FLYIO_ROLLBACK_RUNBOOK.md. Select the previous known-good image from releases-before.json or `fly releases --app ${FLY_APP_NAME} --image`, redeploy it with `fly deploy --app ${FLY_APP_NAME} --image <image>`, and rerun the public smoke monitor.
           EOF
 
       - name: Upload Fly.io deployment evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flyio-public-deploy-evidence-${{ env.SELECTED_ENVIRONMENT }}
