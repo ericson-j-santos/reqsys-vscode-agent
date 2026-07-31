@@ -4,16 +4,17 @@ Plugin local e enxuto para VS Code, preparado para ser plugado em projetos como 
 
 ## Objetivo
 
-Fornecer comandos locais no VS Code para:
+Fornecer comandos e contratos governados para:
 
 - validar o workspace;
 - gerar checklist governado;
-- construir índice local de contexto;
+- construir índice local de contexto com cache incremental;
 - consultar informações do projeto com base em evidência local;
 - executar busca semântica leve local sem LLM externo;
-- expor contrato inicial de runtime público/deploy com healthcheck, ambientes, rollback e artifact de evidência;
-- validar artefato/container sem publicar produção;
-- evoluir futuramente para RAG local com LlamaIndex/Ollama.
+- validar readiness e artefato/container do runtime;
+- preparar deploy público controlado no Fly.io;
+- validar Fly.io e DuckDNS por smoke HTTP;
+- manter runbook de rollback testado em CI.
 
 ## Arquitetura mínima
 
@@ -21,28 +22,29 @@ Fornecer comandos locais no VS Code para:
 VS Code Extension
   -> Python Agent CLI
   -> Workspace Reader Governado
-  -> Local Context Index
+  -> Local Context Index + Incremental Cache
   -> Keyword Search
   -> Lightweight Semantic Search
   -> Runtime Deploy Readiness Contract
-  -> Runtime Deploy Readiness Workflow
-  -> Runtime Container Artifact Workflow
-  -> Arquivo de configuração do projeto
+  -> Runtime Container Artifact
+  -> HTTP Runtime
+  -> Fly.io Public Deploy Workflow
+  -> Fly.io Smoke Monitor
+  -> Fly.io Rollback Readiness
 ```
 
 ## O que este projeto não faz
 
-- Não faz merge automático.
-- Não faz push automático.
-- Não altera produção.
+- Não faz merge ou push automático.
+- Não altera produção fora de workflow governado.
 - Não aplica patch sem aprovação.
 - Não lê arquivos sensíveis.
 - Não depende do build do projeto consumidor.
-- Não exige arquitetura máxima para começar.
-- Não usa LLM por padrão nesta fase.
-- Não usa banco vetorial nesta fase.
+- Não usa LLM ou banco vetorial por padrão.
 - Não publica URL pública sem CI verde e smoke test.
-- Não faz push de imagem para registry sem alvo e credenciais explícitos.
+- Não cria ou altera registros DuckDNS automaticamente.
+- Não registra `FLY_API_TOKEN` em código, logs ou artifacts.
+- Não trata rollback de imagem como rollback de banco de dados.
 
 ## Estrutura
 
@@ -50,24 +52,12 @@ VS Code Extension
 extension/
 agent/
 runtime/
+tools/
 examples/reqsys.config.json
 docs/
 .github/workflows/
+fly.toml
 README.md
-```
-
-## Projeto consumidor
-
-No projeto consumidor, criar um arquivo similar a:
-
-```text
-.reqsys-agent.json
-```
-
-Exemplo disponível em:
-
-```text
-examples/reqsys.config.json
 ```
 
 ## Instalação local
@@ -98,71 +88,129 @@ npm run compile
 PYTHONPATH=agent python -m reqsys_agent.cli health
 ```
 
+A versão de runtime HTTP e CLI está sincronizada em `0.7.0`.
+
 ### Runtime público / deploy
 
 ```bash
 PYTHONPATH=agent python -m reqsys_agent.cli runtime-deploy
-```
-
-Contrato filtrado por ambiente:
-
-```bash
 PYTHONPATH=agent python -m reqsys_agent.cli runtime-deploy --environment staging
 ```
 
-Esse comando registra o contrato inicial da frente `REQSYS#002 • Runtime Público / Deploy`, incluindo:
-
-- ambientes `dev`, `staging` e `production`;
-- healthcheck obrigatório;
-- ordem de promoção;
-- evidências exigidas;
-- KPIs de runtime;
-- restrições de segurança;
-- diretriz de rollback.
-
-### Artefato/container de runtime
+### Artefato/container
 
 ```bash
 PYTHONPATH=agent python -m reqsys_agent.cli runtime-artifact
-```
-
-Contrato filtrado por ambiente:
-
-```bash
 PYTHONPATH=agent python -m reqsys_agent.cli runtime-artifact --environment staging
 ```
 
-Dockerfile do runtime:
+### Contrato Fly.io + DuckDNS
 
-```text
-runtime/Dockerfile.agent
+```bash
+PYTHONPATH=agent python -m reqsys_agent.cli runtime-public \
+  --environment dev \
+  --app-name reqsys-vscode-agent \
+  --duckdns-hostname <hostname>.duckdns.org
 ```
 
-Documentação detalhada:
+### Contrato do smoke monitor
 
-```text
-docs/RUNTIME_PUBLIC_DEPLOY.md
+```bash
+PYTHONPATH=agent python -m reqsys_agent.cli runtime-monitor \
+  --environment dev \
+  --base-url https://reqsys-vscode-agent.fly.dev \
+  --duckdns-url https://<hostname>.duckdns.org
 ```
 
-### Workflow de readiness de deploy
+### Servidor HTTP local
 
-```text
-.github/workflows/runtime-deploy.yml
+```bash
+PYTHONPATH=agent python -m reqsys_agent.cli serve --host 0.0.0.0 --port 8080
 ```
 
-O workflow executa testes, healthcheck, contrato de deploy por ambiente e publica artifact de evidência `runtime-deploy-evidence-*`.
+Endpoints:
 
-Ele não publica produção e não cria URL pública.
+- `/health`;
+- `/ready`;
+- `/runtime-deploy`;
+- `/runtime-artifact`;
+- `/runtime-public`.
 
-### Workflow de artefato/container
+## Variáveis do runtime Fly.io
+
+Variáveis não sensíveis:
 
 ```text
-.github/workflows/runtime-artifact.yml
+REQSYS_RUNTIME_ENVIRONMENT
+REQSYS_FLY_APP_NAME
+REQSYS_DUCKDNS_HOSTNAME
 ```
 
-O workflow executa testes, build Docker, healthcheck dentro do container, contrato de deploy dentro do container, inspeção de metadados da imagem e publica artifact de evidência `runtime-container-artifact-evidence-*`.
+Os nomes antigos `FLY_APP_NAME` e `DUCKDNS_HOSTNAME` permanecem apenas como fallback de compatibilidade no serviço HTTP. Novos deploys usam os nomes `REQSYS_*`, evitando colisão com variáveis reservadas do Fly.io.
 
-Ele não faz push para registry, não publica produção e não cria URL pública.
+Secret obrigatório para deploy real:
+
+```text
+FLY_API_TOKEN
+```
+
+## Workflows de runtime
+
+| Workflow | Arquivo | Função |
+|---|---|---|
+| CI | `.github/workflows/ci.yml` | testes Python, health e compilação TypeScript |
+| Runtime Deploy Readiness | `.github/workflows/runtime-deploy.yml` | readiness por ambiente e artifact |
+| Runtime Container Artifact | `.github/workflows/runtime-artifact.yml` | build/inspeção do container e artifact |
+| Fly.io Public Deploy | `.github/workflows/flyio-deploy.yml` | validação em PR e deploy manual real |
+| Fly.io Smoke Monitor | `.github/workflows/flyio-smoke-monitor.yml` | smoke real em `.fly.dev` e DuckDNS |
+| Fly.io Rollback Readiness | `.github/workflows/flyio-rollback-readiness.yml` | validação automática do runbook |
+
+### Fly.io Public Deploy
+
+Em pull request, o workflow executa testes, build Docker, container local, smoke HTTP e validação da injeção de metadados.
+
+Em `workflow_dispatch`, ele:
+
+1. exige `FLY_API_TOKEN`;
+2. valida ambiente, nome do app e hostname DuckDNS;
+3. usa `flyctl 0.4.49` instalado por action fixada em commit SHA;
+4. registra as releases anteriores;
+5. executa deploy com uma Machine (`--ha=false`) e image label igual ao commit;
+6. injeta `REQSYS_RUNTIME_ENVIRONMENT`, `REQSYS_FLY_APP_NAME` e `REQSYS_DUCKDNS_HOSTNAME`;
+7. executa smoke HTTP;
+8. valida os metadados retornados por `/runtime-public`;
+9. publica `flyio-public-deploy-evidence-*`, inclusive em falha.
+
+O deploy real permanece manual e não é executado em pull request.
+
+### Fly.io Smoke Monitor
+
+O workflow manual valida:
+
+- `/health`;
+- `/ready`;
+- `/runtime-deploy`;
+- `/runtime-artifact`;
+- `/runtime-public`;
+- `/health` via DuckDNS quando informado.
+
+### Rollback
+
+Runbook:
+
+```text
+docs/FLYIO_ROLLBACK_RUNBOOK.md
+```
+
+Validação local:
+
+```bash
+python tools/validate_flyio_rollback_runbook.py
+```
+
+O rollback seleciona uma imagem anterior com `flyctl releases --image` e a redeploya com `flyctl deploy --image`. O procedimento exige smoke posterior e artifact de evidência.
+
+## Contexto local
 
 ### Inspecionar workspace
 
@@ -176,13 +224,14 @@ PYTHONPATH=agent python -m reqsys_agent.cli inspect --workspace /caminho/do/proj
 PYTHONPATH=agent python -m reqsys_agent.cli build-index --workspace /caminho/do/projeto
 ```
 
-O índice é gerado em:
+Arquivos locais gerados:
 
 ```text
 .reqsys/index.json
+.reqsys/index-state.json
 ```
 
-### Perguntar ao contexto local por palavra-chave
+### Perguntar por palavra-chave
 
 ```bash
 PYTHONPATH=agent python -m reqsys_agent.cli ask \
@@ -190,7 +239,7 @@ PYTHONPATH=agent python -m reqsys_agent.cli ask \
   --question "Quais workflows existem?"
 ```
 
-### Perguntar ao contexto local com busca semântica leve
+### Busca semântica leve
 
 ```bash
 PYTHONPATH=agent python -m reqsys_agent.cli semantic-ask \
@@ -198,7 +247,7 @@ PYTHONPATH=agent python -m reqsys_agent.cli semantic-ask \
   --question "controle de qualidade de pipelines"
 ```
 
-A busca semântica desta fase usa TF-IDF + similaridade de cosseno localmente, sem embeddings externos, sem LLM e sem banco vetorial.
+A busca usa TF-IDF + similaridade de cosseno localmente, sem embeddings externos, LLM ou banco vetorial.
 
 ## Comandos VS Code
 
@@ -207,43 +256,29 @@ A busca semântica desta fase usa TF-IDF + similaridade de cosseno localmente, s
 | `ReqSys Agent: Health` | valida o agente local |
 | `ReqSys Agent: Inspect Workspace` | mostra configuração e escopo |
 | `ReqSys Agent: Governance Checklist` | mostra checklist governado |
-| `ReqSys Agent: Build Local Context` | cria `.reqsys/index.json` |
-| `ReqSys Agent: Ask Local Context` | pergunta ao índice local por palavra-chave |
-| `ReqSys Agent: Semantic Ask Local Context` | pergunta ao índice local com ranking TF-IDF/cosseno |
+| `ReqSys Agent: Build Local Context` | cria índice local incremental |
+| `ReqSys Agent: Ask Local Context` | consulta por palavra-chave |
+| `ReqSys Agent: Semantic Ask Local Context` | consulta com ranking TF-IDF/cosseno |
 
-## Segurança operacional
+## Documentação
 
-O leitor de workspace:
-
-- usa somente caminhos permitidos por configuração;
-- ignora binários;
-- ignora arquivos grandes;
-- bloqueia diretórios técnicos pesados;
-- bloqueia nomes sensíveis conhecidos;
-- opera em modo `safe-readonly`;
-- não usa LLM nesta fase;
-- não usa serviço externo nesta fase.
-
-A frente de runtime/deploy:
-
-- não publica produção sem evidência de CI;
-- não informa URL pública sem smoke test validado;
-- exige healthcheck antes de promoção;
-- exige rollback documentado;
-- gera artifact de evidência no workflow de readiness;
-- gera artifact de evidência no workflow de container;
-- mantém produção bloqueada em caso de violação de Auth, CORS, JWT, secrets, PII ou auditoria.
+- `docs/RUNTIME_PUBLIC_DEPLOY.md` — estado consolidado da frente;
+- `docs/FLYIO_PUBLIC_DEPLOY.md` — execução Fly.io + DuckDNS;
+- `docs/FLYIO_SMOKE_MONITOR.md` — smoke público;
+- `docs/FLYIO_ROLLBACK_RUNBOOK.md` — rollback operacional;
+- `docs/INCREMENTAL_INDEX_CACHE.md` — cache incremental.
 
 ## Roadmap enxuto
 
-| Fase | Entrega |
-|---|---|
-| 0.1 | CLI + extensão + config plugável |
-| 0.2 | Workspace Reader + Local Context Index |
-| 0.3 | Busca semântica local leve |
-| 0.4 | Contrato de runtime público/deploy |
-| 0.5 | Workflow de readiness de deploy com artifact |
-| 0.6 | Artefato/container de runtime com evidência |
-| 0.7 | Deploy público controlado + smoke HTTP |
-| 0.8 | LlamaIndex/Ollama opcional |
-| 0.9 | Sugestão de patch assistida |
+| Fase | Entrega | Estado |
+|---|---|---:|
+| 0.1 | CLI + extensão + config plugável | Implementado |
+| 0.2 | Workspace Reader + Local Context Index | Implementado |
+| 0.3 | Busca semântica local leve | Implementado |
+| 0.4 | Contrato de runtime público/deploy | Implementado |
+| 0.5 | Readiness com artifact | Implementado |
+| 0.6 | Artefato/container com evidência | Implementado |
+| 0.7 | Deploy público controlado + smoke HTTP | Pipeline implementado; execução real pendente de workflow manual |
+| 0.7.1 | Hardening de metadados e rollback | Implementado neste incremento |
+| 0.8 | LlamaIndex/Ollama opcional | Futuro |
+| 0.9 | Sugestão de patch assistida | Futuro |
