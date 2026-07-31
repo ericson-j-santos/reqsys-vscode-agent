@@ -1,5 +1,5 @@
 # Owner: IA_DOCUMENTACAO_VIVA
-# Status: warning-first-stable-candidate
+# Status: strict-metadata-gate
 # Atualizado em: 2026-07-31
 # Escopo: REQSYS#007.LIVING_ARCHITECTURE
 
@@ -43,11 +43,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Validate runtime-linked docs
+      - name: Validate runtime-linked docs in strict mode
         run: |
           python tools/living_architecture_doc_drift_check.py \
             --map docs/living-architecture/runtime-docs-map.json \
-            --report artifacts/living-architecture-report.json
+            --report artifacts/living-architecture-report.json \
+            --strict
 
       - name: Upload living architecture report
         if: always()
