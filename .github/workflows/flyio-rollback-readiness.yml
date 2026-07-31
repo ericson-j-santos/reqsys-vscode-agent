@@ -1,0 +1,57 @@
+name: Fly.io Rollback Readiness
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/flyio-rollback-readiness.yml"
+      - "docs/FLYIO_ROLLBACK_RUNBOOK.md"
+      - "tools/validate_flyio_rollback_runbook.py"
+      - ".github/workflows/flyio-deploy.yml"
+      - "agent/reqsys_agent/http_runtime.py"
+      - "fly.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rollback-readiness:
+    name: rollback-readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate rollback runbook
+        run: |
+          python tools/validate_flyio_rollback_runbook.py \
+            --runbook docs/FLYIO_ROLLBACK_RUNBOOK.md \
+            --report artifacts/flyio-rollback-readiness.json
+
+      - name: Write workflow summary
+        if: always()
+        run: |
+          cat >> "${GITHUB_STEP_SUMMARY}" <<EOF
+          ## Fly.io Rollback Readiness
+
+          - Domain: REQSYS#002.RUNTIME_PUBLICO.ROLLBACK_READINESS
+          - Commit: ${GITHUB_SHA}
+          - Run ID: ${GITHUB_RUN_ID}
+          - Runbook: docs/FLYIO_ROLLBACK_RUNBOOK.md
+          - Evidence: artifacts/flyio-rollback-readiness.json
+          EOF
+
+      - name: Upload rollback readiness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flyio-rollback-readiness-evidence
+          path: artifacts/flyio-rollback-readiness.json
+          if-no-files-found: error
+          retention-days: 14
