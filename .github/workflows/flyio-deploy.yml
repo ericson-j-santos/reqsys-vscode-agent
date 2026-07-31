@@ -72,12 +72,34 @@ jobs:
             -e REQSYS_DUCKDNS_HOSTNAME=reqsys.duckdns.org \
             "${IMAGE_TAG}"
 
-      - name: Local HTTP smoke test
+      - name: Wait for local runtime health
         run: |
           mkdir -p "${EVIDENCE_DIR}"
-          for path in /health /ready /runtime-deploy /runtime-artifact /runtime-public; do
+          for attempt in $(seq 1 30); do
+            if curl --fail --show-error --silent \
+              --connect-timeout 2 --max-time 5 \
+              --output "${EVIDENCE_DIR}/health.json" \
+              "http://127.0.0.1:8080/health"; then
+              echo "Local runtime became healthy on attempt ${attempt}."
+              exit 0
+            fi
+
+            if [ "${attempt}" -eq 30 ]; then
+              echo "Local runtime did not become healthy."
+              docker logs reqsys-flyio-smoke || true
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+      - name: Local HTTP smoke test
+        run: |
+          for path in /ready /runtime-deploy /runtime-artifact /runtime-public; do
             name="${path#/}"
-            curl --fail --show-error --silent --retry 10 --retry-delay 2 \
+            curl --fail --show-error --silent \
+              --retry 10 --retry-all-errors --retry-delay 1 \
+              --connect-timeout 2 --max-time 10 \
               "http://127.0.0.1:8080${path}" \
               | tee "${EVIDENCE_DIR}/${name}.json"
           done
@@ -118,7 +140,7 @@ jobs:
           - Commit: ${GITHUB_SHA}
           - Workflow: ${GITHUB_WORKFLOW}
           - Run ID: ${GITHUB_RUN_ID}
-          - Status: local container smoke and metadata injection validation executed
+          - Status: local container readiness, smoke and metadata injection validation executed
 
           ## Explicit constraints
 
@@ -236,7 +258,9 @@ jobs:
           echo "${FLY_URL}" > "${EVIDENCE_DIR}/fly-url.txt"
           for path in /health /ready /runtime-deploy /runtime-artifact /runtime-public; do
             name="${path#/}"
-            curl --fail --show-error --silent --retry 12 --retry-delay 5 \
+            curl --fail --show-error --silent \
+              --retry 12 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 5 --max-time 30 \
               "${FLY_URL}${path}?environment=${SELECTED_ENVIRONMENT}" \
               | tee "${EVIDENCE_DIR}/fly-${name}.json"
           done
@@ -267,7 +291,9 @@ jobs:
         run: |
           DUCKDNS_URL="https://${DUCKDNS_HOSTNAME}"
           echo "${DUCKDNS_URL}" > "${EVIDENCE_DIR}/duckdns-url.txt"
-          curl --fail --show-error --silent --retry 12 --retry-delay 5 \
+          curl --fail --show-error --silent \
+            --retry 12 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 5 --max-time 30 \
             "${DUCKDNS_URL}/health" \
             | tee "${EVIDENCE_DIR}/duckdns-health.json"
 
