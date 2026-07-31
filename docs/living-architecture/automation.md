@@ -1,13 +1,13 @@
 # Automação — Living Architecture Doc Drift Check
 
 **Owner:** IA_DOCUMENTACAO_VIVA  
-**Status:** warning-first  
-**Atualizado em:** 2026-06-25  
+**Status:** strict-metadata-gate  
+**Atualizado em:** 2026-07-31  
 **Escopo:** REQSYS#007 • DOCS_VIVAS • LIVING_ARCHITECTURE
 
 ## Objetivo
 
-Automatizar a primeira camada de validação da documentação viva do ReqSys, garantindo que os documentos referenciados no mapa runtime↔docs existam e possuam metadados mínimos de governança.
+Validar automaticamente a documentação viva do ReqSys, garantindo que os documentos referenciados no mapa runtime↔docs existam e possuam metadados mínimos de governança.
 
 ## Arquivos principais
 
@@ -23,29 +23,37 @@ Automatizar a primeira camada de validação da documentação viva do ReqSys, g
 1. Validação sintática do JSON `runtime-docs-map.json`.
 2. Validação da estrutura `runtime_doc_links`.
 3. Verificação de existência dos documentos referenciados.
-4. Verificação de metadados mínimos:
+4. Verificação obrigatória de metadados mínimos:
    - owner/responsável;
    - status/estado;
    - data de atualização.
 5. Geração de relatório JSON consolidado.
 
-## Modo operacional
+## Modo operacional atual
 
-O modo inicial é **warning-first**:
+O workflow opera em **strict-metadata-gate**:
 
-- documentos ausentes geram falha;
-- JSON inválido gera falha;
-- ausência de metadados gera warning;
-- warnings não bloqueiam merge nesta primeira fase.
+- documentos ausentes bloqueiam o PR;
+- JSON inválido bloqueia o PR;
+- ausência de owner, status ou data bloqueia o PR;
+- o artifact é publicado mesmo quando a validação falha;
+- o gate permanece sem acesso a rede, runtime ou secrets.
 
-## Evolução planejada
+A promoção ocorreu após uma execução estável em modo warning-first com:
 
-| Fase | Comportamento | Critério de avanço |
+- `coverage_percent: 100.0`;
+- `missing_docs: 0`;
+- `metadata_warnings: 0`;
+- `findings: 0`.
+
+## Evolução
+
+| Fase | Comportamento | Estado |
 |---|---|---|
-| 1 | Warning-first | Workflow verde com relatório publicado |
-| 2 | Strict parcial | Metadados mínimos obrigatórios em docs canônicos |
-| 3 | Gate bloqueante | Drift documental bloqueia merge |
-| 4 | Runtime-linked | Evidência runtime↔docs cruzada com telemetria |
+| 1 | Warning-first | Concluída |
+| 2 | Strict para metadados mínimos | Ativa |
+| 3 | Gate de drift documental ampliado | Próximo incremento |
+| 4 | Runtime-linked com telemetria | Planejada |
 
 ## Restrições
 
@@ -60,11 +68,16 @@ O modo inicial é **warning-first**:
 ```bash
 python tools/living_architecture_doc_drift_check.py \
   --map docs/living-architecture/runtime-docs-map.json \
-  --report artifacts/living-architecture-report.json
+  --report artifacts/living-architecture-report.json \
+  --strict
 ```
 
-Para endurecimento futuro:
+## Critério de sucesso
 
-```bash
-python tools/living_architecture_doc_drift_check.py --strict
+```text
+status: passed
+coverage_percent: 100.0
+missing_docs: 0
+metadata_warnings: 0
+findings: 0
 ```
