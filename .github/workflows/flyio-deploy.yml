@@ -167,6 +167,63 @@ jobs:
       DUCKDNS_HOSTNAME: ${{ github.event.inputs.duckdns_hostname }}
       EVIDENCE_DIR: .reqsys/evidence/flyio-deploy
     steps:
+      - name: Preflight deployment authorization and inputs
+        run: |
+          mkdir -p "${EVIDENCE_DIR}"
+
+          case "${SELECTED_ENVIRONMENT}" in
+            dev|staging|production)
+              echo "Selected environment: ${SELECTED_ENVIRONMENT}"
+              ;;
+            *)
+              echo "::error title=Ambiente Fly.io inválido::Valor recebido: ${SELECTED_ENVIRONMENT}"
+              exit 1
+              ;;
+          esac
+
+          if ! printf '%s' "${FLY_APP_NAME}" | grep -Eq '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'; then
+            echo "::error title=Nome de app Fly.io inválido::Use somente letras minúsculas, números e hífens."
+            exit 1
+          fi
+
+          if [ -n "${DUCKDNS_HOSTNAME}" ] && ! printf '%s' "${DUCKDNS_HOSTNAME}" | grep -Eq '^[a-z0-9-]+\.duckdns\.org$'; then
+            echo "::error title=Hostname DuckDNS inválido::Informe apenas o hostname terminado em .duckdns.org, sem https://"
+            exit 1
+          fi
+
+          if [ "${SELECTED_ENVIRONMENT}" = "production" ] && [ -z "${DUCKDNS_HOSTNAME}" ]; then
+            echo "::error title=DuckDNS obrigatório em produção::Informe o hostname DuckDNS explícito."
+            exit 1
+          fi
+
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            TOKEN_SETTINGS_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/settings/secrets/actions"
+            echo "missing" > "${EVIDENCE_DIR}/authorization-status.txt"
+            printf '%s\n' "${TOKEN_SETTINGS_URL}" > "${EVIDENCE_DIR}/token-settings-url.txt"
+            cat > "${EVIDENCE_DIR}/preflight.md" <<EOF
+          # Fly.io deploy bloqueado no preflight
+
+          O secret FLY_API_TOKEN não está configurado ou não está disponível para este workflow.
+
+          Configure o secret em:
+          ${TOKEN_SETTINGS_URL}
+
+          Depois, execute novamente o workflow Fly.io Public Deploy.
+          EOF
+            echo "::error title=FLY_API_TOKEN ausente::Cadastre o secret em Settings > Secrets and variables > Actions antes de executar o deploy."
+            {
+              echo "## Fly.io deploy bloqueado"
+              echo ""
+              echo "O secret **FLY_API_TOKEN** não está configurado ou não está disponível."
+              echo ""
+              echo "Cadastre em: ${TOKEN_SETTINGS_URL}"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+          echo "configured" > "${EVIDENCE_DIR}/authorization-status.txt"
+          echo "Fly.io deployment preflight passed."
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -185,38 +242,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Validate deployment inputs
-        run: |
-          case "${SELECTED_ENVIRONMENT}" in
-            dev|staging|production)
-              echo "Selected environment: ${SELECTED_ENVIRONMENT}"
-              ;;
-            *)
-              echo "Invalid environment: ${SELECTED_ENVIRONMENT}"
-              exit 1
-              ;;
-          esac
-
-          if [ -z "${FLY_API_TOKEN}" ]; then
-            echo "Missing required GitHub secret: FLY_API_TOKEN"
-            exit 1
-          fi
-
-          if ! printf '%s' "${FLY_APP_NAME}" | grep -Eq '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'; then
-            echo "Invalid Fly.io app name: ${FLY_APP_NAME}"
-            exit 1
-          fi
-
-          if [ -n "${DUCKDNS_HOSTNAME}" ] && ! printf '%s' "${DUCKDNS_HOSTNAME}" | grep -Eq '^[a-z0-9-]+\.duckdns\.org$'; then
-            echo "duckdns_hostname must be a hostname ending in .duckdns.org and must not include a URL scheme"
-            exit 1
-          fi
-
-          if [ "${SELECTED_ENVIRONMENT}" = "production" ] && [ -z "${DUCKDNS_HOSTNAME}" ]; then
-            echo "Production requires an explicit DuckDNS hostname"
-            exit 1
-          fi
 
       - name: Run tests before deploy
         run: PYTHONPATH=agent pytest agent/tests -q
@@ -301,6 +326,13 @@ jobs:
         if: always()
         run: |
           mkdir -p "${EVIDENCE_DIR}"
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            echo "Diagnostics skipped: FLY_API_TOKEN is missing." > "${EVIDENCE_DIR}/fly-status.txt"
+            printf '[]\n' > "${EVIDENCE_DIR}/releases-after.json"
+            echo "Diagnostics unavailable because FLY_API_TOKEN is missing." > "${EVIDENCE_DIR}/releases-after-error.txt"
+            exit 0
+          fi
+
           flyctl status --app "${FLY_APP_NAME}" \
             > "${EVIDENCE_DIR}/fly-status.txt" 2>&1 || true
           flyctl releases --app "${FLY_APP_NAME}" --image --json \
@@ -309,6 +341,12 @@ jobs:
       - name: Write deployment summary
         if: always()
         run: |
+          mkdir -p "${EVIDENCE_DIR}"
+          TOKEN_STATUS="configured"
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            TOKEN_STATUS="missing"
+          fi
+
           cat > "${EVIDENCE_DIR}/summary.md" <<EOF
           # Fly.io Public Deploy Evidence
 
@@ -319,6 +357,7 @@ jobs:
           - DuckDNS hostname: ${DUCKDNS_HOSTNAME}
           - Runtime version: 0.7.0
           - Flyctl version: 0.4.49
+          - Authorization status: ${TOKEN_STATUS}
           - Workflow: ${GITHUB_WORKFLOW}
           - Run ID: ${GITHUB_RUN_ID}
           - Commit: ${GITHUB_SHA}
@@ -328,7 +367,7 @@ jobs:
 
           ## Rollback procedure
 
-          Consult docs/FLYIO_ROLLBACK_RUNBOOK.md. Select the previous known-good image from releases-before.json or `fly releases --app ${FLY_APP_NAME} --image`, redeploy it with `fly deploy --app ${FLY_APP_NAME} --image <image>`, and rerun the public smoke monitor.
+          Consult docs/FLYIO_ROLLBACK_RUNBOOK.md. Select the previous known-good image from releases-before.json or from the Fly.io release list. Redeploy that image and rerun the public smoke monitor.
           EOF
 
       - name: Upload Fly.io deployment evidence
