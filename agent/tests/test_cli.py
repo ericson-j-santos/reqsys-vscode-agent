@@ -22,10 +22,22 @@ def test_runtime_artifact_contract_by_environment():
 
 
 def test_runtime_public_contract():
-    assert main(["runtime-public", "--app-name", "reqsys-vscode-agent"]) == 0
+    assert main(["runtime-public"]) == 0
 
 
-def test_runtime_public_contract_with_duckdns():
+def test_runtime_public_contract_with_pc24x7_url():
+    assert main([
+        "runtime-public",
+        "--environment",
+        "staging",
+        "--provider",
+        "pc24x7",
+        "--base-url",
+        "http://localhost:8080",
+    ]) == 0
+
+
+def test_runtime_public_contract_accepts_legacy_flyio_inputs_as_attention():
     assert main([
         "runtime-public",
         "--environment",
@@ -41,19 +53,19 @@ def test_runtime_monitor_contract():
     assert main([
         "runtime-monitor",
         "--base-url",
-        "https://reqsys-vscode-agent.fly.dev",
+        "http://localhost:8080",
     ]) == 0
 
 
-def test_runtime_monitor_contract_with_duckdns():
+def test_runtime_monitor_contract_with_secondary_url():
     assert main([
         "runtime-monitor",
         "--environment",
         "staging",
         "--base-url",
-        "https://reqsys-vscode-agent.fly.dev",
+        "http://localhost:8080",
         "--duckdns-url",
-        "https://reqsys.duckdns.org",
+        "https://runtime.example.invalid",
     ]) == 0
 
 
