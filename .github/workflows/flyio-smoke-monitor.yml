@@ -1,11 +1,11 @@
-name: Fly.io Smoke Monitor
+name: Runtime Smoke Monitor
 
 on:
   pull_request:
     paths:
       - ".github/workflows/flyio-smoke-monitor.yml"
       - "agent/**"
-      - "docs/FLYIO_SMOKE_MONITOR.md"
+      - "docs/RUNTIME_ROUTING_CURRENT.md"
       - "README.md"
   workflow_dispatch:
     inputs:
@@ -19,11 +19,11 @@ on:
           - staging
           - production
       base_url:
-        description: "URL base principal, ex: https://reqsys-vscode-agent.fly.dev"
+        description: "URL base principal do runtime selecionado"
         required: true
         type: string
-      duckdns_url:
-        description: "URL DuckDNS opcional, ex: https://reqsys.duckdns.org"
+      secondary_url:
+        description: "URL secundária opcional para healthcheck"
         required: false
         default: ""
         type: string
@@ -36,7 +36,7 @@ jobs:
     name: validate-monitor-contract
     runs-on: ubuntu-latest
     env:
-      EVIDENCE_DIR: .reqsys/evidence/flyio-smoke-monitor-validate
+      EVIDENCE_DIR: .reqsys/evidence/runtime-smoke-monitor-validate
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,17 +59,18 @@ jobs:
         run: |
           mkdir -p "${EVIDENCE_DIR}"
           PYTHONPATH=agent python -m reqsys_agent.cli runtime-monitor \
-            --base-url "https://reqsys-vscode-agent.fly.dev" \
+            --base-url "http://localhost:8080" \
             --environment dev \
             | tee "${EVIDENCE_DIR}/monitor-contract.json"
 
       - name: Write validation summary
         run: |
           cat > "${EVIDENCE_DIR}/summary.md" <<EOF
-          # Fly.io Smoke Monitor Contract Validation
+          # Runtime Smoke Monitor Contract Validation
 
           - Domain: REQSYS#002.RUNTIME_PUBLICO.SMOKE_MONITOR
           - Mode: pull_request validation only
+          - Active route: provider-neutral / non-Fly
           - Commit: ${GITHUB_SHA}
           - Workflow: ${GITHUB_WORKFLOW}
           - Run ID: ${GITHUB_RUN_ID}
@@ -83,8 +84,8 @@ jobs:
       - name: Upload monitor validation evidence
         uses: actions/upload-artifact@v4
         with:
-          name: flyio-smoke-monitor-validation-evidence
-          path: .reqsys/evidence/flyio-smoke-monitor-validate
+          name: runtime-smoke-monitor-validation-evidence
+          path: .reqsys/evidence/runtime-smoke-monitor-validate
           retention-days: 14
 
   smoke-monitor:
@@ -95,8 +96,8 @@ jobs:
     env:
       SELECTED_ENVIRONMENT: ${{ github.event.inputs.environment }}
       BASE_URL: ${{ github.event.inputs.base_url }}
-      DUCKDNS_URL: ${{ github.event.inputs.duckdns_url }}
-      EVIDENCE_DIR: .reqsys/evidence/flyio-smoke-monitor
+      SECONDARY_URL: ${{ github.event.inputs.secondary_url }}
+      EVIDENCE_DIR: .reqsys/evidence/runtime-smoke-monitor
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -130,8 +131,8 @@ jobs:
           fi
 
           case "${BASE_URL}" in
-            https://*) echo "Base URL is HTTPS" ;;
-            *) echo "base_url must start with https://"; exit 1 ;;
+            http://*|https://*) echo "Base URL has accepted scheme" ;;
+            *) echo "base_url must start with http:// or https://"; exit 1 ;;
           esac
 
       - name: Prepare monitor evidence
@@ -142,7 +143,7 @@ jobs:
           PYTHONPATH=agent python -m reqsys_agent.cli runtime-monitor \
             --environment "${SELECTED_ENVIRONMENT}" \
             --base-url "${BASE_URL}" \
-            --duckdns-url "${DUCKDNS_URL}" \
+            --duckdns-url "${SECONDARY_URL}" \
             | tee "${EVIDENCE_DIR}/monitor-contract.json"
 
       - name: Smoke primary URL
@@ -167,31 +168,32 @@ jobs:
             esac
           done
 
-      - name: Smoke DuckDNS URL when provided
-        if: ${{ github.event.inputs.duckdns_url != '' }}
+      - name: Smoke secondary URL when provided
+        if: ${{ github.event.inputs.secondary_url != '' }}
         run: |
-          NORMALIZED_DUCKDNS_URL="${DUCKDNS_URL%/}"
-          echo "${NORMALIZED_DUCKDNS_URL}" > "${EVIDENCE_DIR}/duckdns-url.txt"
+          NORMALIZED_SECONDARY_URL="${SECONDARY_URL%/}"
+          echo "${NORMALIZED_SECONDARY_URL}" > "${EVIDENCE_DIR}/secondary-url.txt"
           http_code=$(curl --location --silent --show-error \
             --retry 12 --retry-delay 5 \
-            --output "${EVIDENCE_DIR}/duckdns-health.json" \
+            --output "${EVIDENCE_DIR}/secondary-health.json" \
             --write-out "%{http_code}" \
-            "${NORMALIZED_DUCKDNS_URL}/health")
-          printf "path=/health\nhttp_code=%s\n" "${http_code}" > "${EVIDENCE_DIR}/duckdns-health-status.txt"
+            "${NORMALIZED_SECONDARY_URL}/health")
+          printf "path=/health\nhttp_code=%s\n" "${http_code}" > "${EVIDENCE_DIR}/secondary-health-status.txt"
           case "${http_code}" in
-            2*) echo "DuckDNS health OK with ${http_code}" ;;
-            *) echo "DuckDNS health failed with ${http_code}"; cat "${EVIDENCE_DIR}/duckdns-health.json"; exit 1 ;;
+            2*) echo "Secondary health OK with ${http_code}" ;;
+            *) echo "Secondary health failed with ${http_code}"; cat "${EVIDENCE_DIR}/secondary-health.json"; exit 1 ;;
           esac
 
       - name: Write monitor summary
         run: |
           cat > "${EVIDENCE_DIR}/summary.md" <<EOF
-          # Fly.io Smoke Monitor Evidence
+          # Runtime Smoke Monitor Evidence
 
           - Domain: REQSYS#002.RUNTIME_PUBLICO.SMOKE_MONITOR
           - Environment: ${SELECTED_ENVIRONMENT}
           - Primary URL: ${BASE_URL}
-          - DuckDNS URL: ${DUCKDNS_URL}
+          - Secondary URL: ${SECONDARY_URL}
+          - Active route: provider-neutral / non-Fly
           - Workflow: ${GITHUB_WORKFLOW}
           - Run ID: ${GITHUB_RUN_ID}
           - Commit: ${GITHUB_SHA}
@@ -214,6 +216,6 @@ jobs:
       - name: Upload smoke monitor evidence
         uses: actions/upload-artifact@v4
         with:
-          name: flyio-smoke-monitor-evidence-${{ env.SELECTED_ENVIRONMENT }}
-          path: .reqsys/evidence/flyio-smoke-monitor
+          name: runtime-smoke-monitor-evidence-${{ env.SELECTED_ENVIRONMENT }}
+          path: .reqsys/evidence/runtime-smoke-monitor
           retention-days: 14
