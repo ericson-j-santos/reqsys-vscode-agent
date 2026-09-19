@@ -44,6 +44,9 @@ RUNTIME_CONTAINER_ARTIFACT = {
 }
 
 SMOKE_ENDPOINTS = ["/health", "/ready", "/runtime-deploy", "/runtime-artifact", "/runtime-public"]
+DEFAULT_RUNTIME_PROVIDER = "pc24x7"
+DEFAULT_RUNTIME_URL = "http://localhost:8080"
+LEGACY_PROVIDERS = {"fly.io", "flyio"}
 
 
 def correlation_id() -> str:
@@ -53,6 +56,13 @@ def correlation_id() -> str:
 def emit(payload: dict) -> int:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("status") in {"ok", "attention", "blocked"} else 1
+
+
+def normalize_provider(provider: str | None) -> str:
+    normalized = (provider or DEFAULT_RUNTIME_PROVIDER).strip().lower()
+    if normalized in LEGACY_PROVIDERS:
+        return "legacy-flyio"
+    return normalized or DEFAULT_RUNTIME_PROVIDER
 
 
 def command_health() -> int:
@@ -72,7 +82,8 @@ def command_health() -> int:
             "runtime public deploy readiness contract",
             "runtime container artifact contract",
             "runtime public HTTP service",
-            "runtime public smoke monitor contract",
+            "provider-neutral runtime routing contract",
+            "runtime smoke monitor contract",
         ],
         "restrictions": [
             "no automatic merge",
@@ -82,6 +93,7 @@ def command_health() -> int:
             "no secret reading",
             "no external LLM required",
             "no vector database required",
+            "no Fly.io active route",
         ],
     })
 
@@ -97,7 +109,7 @@ def command_runtime_deploy(environment: str | None = None) -> int:
         "service": "reqsys-vscode-agent",
         "domain": "REQSYS#002.RUNTIME_PUBLICO.DEPLOY_RUNTIME",
         "branch": "ai/runtime-public",
-        "maturity_percent": 66,
+        "maturity_percent": 70,
         "target_maturity_percent": 100,
         "environment_count": len(environments),
         "environments": environments,
@@ -108,6 +120,7 @@ def command_runtime_deploy(environment: str | None = None) -> int:
         },
         "deploy_contract": {
             "strategy": "small governed PRs with draft mode until CI is green",
+            "runtime_selection": "apply runtime-routing: PC24x7 first, external provider only with explicit need",
             "artifact_evidence": "CI logs, health output, smoke evidence and rollback note",
             "promotion_order": ["dev", "staging", "production"],
         },
@@ -122,8 +135,9 @@ def command_runtime_deploy(environment: str | None = None) -> int:
             "claim public URL without validated runtime",
             "bypass security gates for Auth, CORS, JWT, secrets or audit",
             "deploy without documented rollback path",
+            "use Fly.io as active route without a new explicit decision",
         ],
-        "next_increment": "add environment-specific deployment workflow after repository runtime target is selected",
+        "next_increment": "validate the selected non-Fly runtime target and capture HTTP smoke evidence",
     })
 
 
@@ -134,7 +148,7 @@ def command_runtime_artifact(environment: str | None = None) -> int:
         "service": "reqsys-vscode-agent",
         "domain": "REQSYS#002.RUNTIME_PUBLICO.CONTAINER_ARTIFACT",
         "branch": "ai/runtime-container-artifact",
-        "maturity_percent": 74,
+        "maturity_percent": 78,
         "environment": environment or "dev",
         "artifact": RUNTIME_CONTAINER_ARTIFACT,
         "quality_gates": [
@@ -161,49 +175,64 @@ def command_runtime_artifact(environment: str | None = None) -> int:
         "cannot_do": [
             "publish image to registry without explicit target and credentials",
             "deploy public URL from artifact workflow",
-            "claim production readiness without smoke test against public runtime",
+            "claim production readiness without smoke test against selected runtime",
         ],
-        "next_increment": "choose public runtime target and add deployment job with smoke test and rollback evidence",
+        "next_increment": "run smoke against PC24x7/local runtime or another explicitly selected non-Fly target",
     })
 
 
-def command_runtime_public(environment: str, app_name: str, duckdns_hostname: str | None) -> int:
+def command_runtime_public(
+    environment: str,
+    provider: str | None,
+    base_url: str | None,
+    app_name: str | None,
+    duckdns_hostname: str | None,
+) -> int:
+    selected_provider = normalize_provider(provider)
+    selected_base_url = (base_url or DEFAULT_RUNTIME_URL).rstrip("/")
+    legacy_flyio_requested = selected_provider == "legacy-flyio" or bool(app_name) or bool(duckdns_hostname)
+
     return emit({
-        "status": "ok",
+        "status": "attention" if legacy_flyio_requested else "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
-        "domain": "REQSYS#002.RUNTIME_PUBLICO.FLYIO_DUCKDNS",
-        "branch": "ai/flyio-public-deploy",
-        "maturity_percent": 82,
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.RUNTIME_ROUTING",
+        "branch": "ai/runtime-routing-current",
+        "maturity_percent": 84,
         "environment": environment,
         "target": {
-            "provider": "fly.io",
-            "app_name": app_name,
-            "fly_url": f"https://{app_name}.fly.dev",
-            "duckdns_hostname": duckdns_hostname,
-            "duckdns_url": f"https://{duckdns_hostname}" if duckdns_hostname else None,
+            "provider": selected_provider,
+            "base_url": selected_base_url,
+            "primary_health_url": f"{selected_base_url}/health",
+            "runtime_public_url": f"{selected_base_url}/runtime-public",
         },
-        "cost_guard": {
-            "auto_stop_machines": "stop",
-            "auto_start_machines": True,
-            "min_machines_running": 0,
-            "paid_database": False,
-            "persistent_volume_required": False,
+        "routing_policy": {
+            "active_route": "pc24x7-first",
+            "external_provider_requires_explicit_decision": True,
+            "flyio_active": False,
+            "legacy_flyio_inputs_received": legacy_flyio_requested,
+        },
+        "legacy_flyio": {
+            "status": "deprecated",
+            "reason": "Fly.io is no longer the active runtime route for this project.",
+            "app_name_input": app_name,
+            "duckdns_hostname_input": duckdns_hostname,
         },
         "required_gates": [
-            "workflow_dispatch",
-            "FLY_API_TOKEN secret present",
-            "docker build",
-            "fly deploy",
-            "HTTP smoke on fly.dev",
-            "optional HTTP smoke on DuckDNS hostname",
-            "rollback hint evidence",
+            "runtime target selected",
+            "ci",
+            "container artifact",
+            "HTTP health smoke",
+            "runtime-public metadata smoke",
+            "rollback or restart procedure evidence",
         ],
         "cannot_do": [
-            "configure DuckDNS records from GitHub without provider credentials",
-            "claim production readiness without smoke evidence",
-            "deploy production outside explicit workflow_dispatch",
+            "claim public readiness without smoke evidence",
+            "treat a legacy Fly.io workflow as active deployment",
+            "deploy production without explicit approval",
+            "read or require Fly.io secrets for the active route",
         ],
+        "next_increment": "validate HTTP smoke against the selected non-Fly runtime endpoint",
     })
 
 
@@ -215,12 +244,12 @@ def command_runtime_monitor(base_url: str, environment: str, duckdns_url: str | 
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
         "domain": "REQSYS#002.RUNTIME_PUBLICO.SMOKE_MONITOR",
-        "branch": "ai/flyio-smoke-monitor",
-        "maturity_percent": 86,
+        "branch": "ai/runtime-smoke-monitor",
+        "maturity_percent": 88,
         "environment": environment,
         "targets": {
             "primary_base_url": normalized_base_url,
-            "duckdns_url": normalized_duckdns_url,
+            "secondary_url": normalized_duckdns_url,
         },
         "smoke_endpoints": SMOKE_ENDPOINTS,
         "evidence_files": [
@@ -230,18 +259,18 @@ def command_runtime_monitor(base_url: str, environment: str, duckdns_url: str | 
             "primary-runtime-deploy.json",
             "primary-runtime-artifact.json",
             "primary-runtime-public.json",
-            "duckdns-health.json",
+            "secondary-health.json",
             "summary.md",
         ],
         "success_criteria": [
             "all primary smoke endpoints return HTTP 2xx",
-            "DuckDNS health returns HTTP 2xx when duckdns_url is provided",
+            "secondary health returns HTTP 2xx when secondary_url is provided",
             "response payload includes status=ok for runtime endpoints",
             "evidence artifact is uploaded",
         ],
         "cannot_do": [
             "create DNS records automatically",
-            "fix Fly.io runtime without a deploy workflow run",
+            "fix runtime without a deploy workflow run or host action",
             "claim uptime SLA from a single smoke run",
         ],
         "next_increment": "schedule governed uptime probes after public URL is stable",
@@ -280,14 +309,14 @@ def command_governance(workspace: Path) -> int:
         {"name": "semantic local search", "status": "green", "detail": "TF-IDF/cosine without external services"},
         {"name": "runtime deploy contract", "status": "green", "detail": "health, rollout and rollback evidence required"},
         {"name": "runtime container artifact", "status": "green", "detail": "container build evidence without registry publication"},
-        {"name": "fly.io public runtime", "status": "green", "detail": "workflow_dispatch deploy with HTTP smoke evidence"},
-        {"name": "fly.io smoke monitor", "status": "green", "detail": "manual smoke probes with artifact evidence"},
+        {"name": "runtime routing", "status": "green", "detail": "PC24x7/non-Fly route is the active contract"},
+        {"name": "runtime smoke monitor", "status": "green", "detail": "manual smoke probes with artifact evidence"},
     ]
 
     return emit({
         "status": "ok",
         "correlation_id": correlation_id(),
-        "maturity_percent": 93,
+        "maturity_percent": 94,
         "checks": checks,
         "cannot_do": [
             "merge without human review",
@@ -349,8 +378,10 @@ def main(argv: list[str] | None = None) -> int:
 
     public_cmd = sub.add_parser("runtime-public")
     public_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
-    public_cmd.add_argument("--app-name", default="reqsys-vscode-agent")
-    public_cmd.add_argument("--duckdns-hostname", default=None)
+    public_cmd.add_argument("--provider", default=DEFAULT_RUNTIME_PROVIDER)
+    public_cmd.add_argument("--base-url", default=DEFAULT_RUNTIME_URL)
+    public_cmd.add_argument("--app-name", default=None, help="Legado Fly.io: não usar como rota ativa")
+    public_cmd.add_argument("--duckdns-hostname", default=None, help="Legado Fly.io/DuckDNS: não usar como rota ativa")
 
     monitor_cmd = sub.add_parser("runtime-monitor")
     monitor_cmd.add_argument("--base-url", required=True)
@@ -390,7 +421,13 @@ def main(argv: list[str] | None = None) -> int:
         return command_runtime_artifact(args.environment)
 
     if args.command == "runtime-public":
-        return command_runtime_public(args.environment, args.app_name, args.duckdns_hostname)
+        return command_runtime_public(
+            args.environment,
+            args.provider,
+            args.base_url,
+            args.app_name,
+            args.duckdns_hostname,
+        )
 
     if args.command == "runtime-monitor":
         return command_runtime_monitor(args.base_url, args.environment, args.duckdns_url)
