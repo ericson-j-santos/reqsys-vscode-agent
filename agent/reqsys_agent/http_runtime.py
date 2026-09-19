@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 SERVICE_NAME = "reqsys-vscode-agent"
 SERVICE_VERSION = "0.7.0"
 VALID_ENVIRONMENTS = {"dev", "staging", "production"}
+SMOKE_PATHS = ["/health", "/ready", "/runtime-deploy", "/runtime-artifact", "/runtime-public"]
 
 
 def correlation_id() -> str:
@@ -22,9 +23,15 @@ def normalize_environment(value: str | None) -> str:
     return "dev"
 
 
-def runtime_setting(primary_name: str, legacy_name: str, default: str = "") -> str:
-    """Read a non-reserved ReqSys runtime variable with legacy fallback."""
-    return os.environ.get(primary_name) or os.environ.get(legacy_name) or default
+def runtime_setting(primary_name: str, default: str = "") -> str:
+    return os.environ.get(primary_name) or default
+
+
+def normalize_provider(value: str | None) -> str:
+    provider = (value or "pc24x7").strip().lower()
+    if provider in {"fly.io", "flyio"}:
+        return "legacy-flyio"
+    return provider or "pc24x7"
 
 
 def health_payload() -> dict:
@@ -35,7 +42,7 @@ def health_payload() -> dict:
         "version": SERVICE_VERSION,
         "mode": "safe-readonly",
         "runtime": "http",
-        "endpoints": ["/health", "/ready", "/runtime-deploy", "/runtime-artifact", "/runtime-public"],
+        "endpoints": SMOKE_PATHS,
     }
 
 
@@ -47,7 +54,7 @@ def readiness_payload(environment: str) -> dict:
         "version": SERVICE_VERSION,
         "environment": environment,
         "startup_health": True,
-        "production_blocked_without_workflow_dispatch": True,
+        "production_blocked_without_explicit_approval": True,
     }
 
 
@@ -60,11 +67,17 @@ def runtime_deploy_payload(environment: str) -> dict:
         "domain": "REQSYS#002.RUNTIME_PUBLICO.DEPLOY_RUNTIME",
         "environment": environment,
         "promotion_order": ["dev", "staging", "production"],
-        "required_gates": ["ci", "container-artifact", "fly-deploy", "http-smoke", "rollback-evidence"],
+        "runtime_routing": {
+            "active_policy": "pc24x7-first",
+            "flyio_active": False,
+            "external_provider_requires_explicit_decision": True,
+        },
+        "required_gates": ["ci", "container-artifact", "runtime-routing", "http-smoke", "rollback-evidence"],
         "cannot_do": [
             "claim production readiness without HTTP smoke test",
-            "publish without FLY_API_TOKEN",
-            "bypass workflow_dispatch for production",
+            "publish without selected runtime evidence",
+            "bypass explicit approval for production",
+            "use legacy Fly.io workflow as active deployment route",
         ],
     }
 
@@ -84,44 +97,33 @@ def runtime_artifact_payload(environment: str) -> dict:
 
 
 def runtime_public_payload(environment: str) -> dict:
-    fly_app_name = runtime_setting(
-        "REQSYS_FLY_APP_NAME",
-        "FLY_APP_NAME",
-        "reqsys-vscode-agent",
-    )
-    duckdns_hostname = runtime_setting(
-        "REQSYS_DUCKDNS_HOSTNAME",
-        "DUCKDNS_HOSTNAME",
-    )
-    duckdns_url = f"https://{duckdns_hostname}" if duckdns_hostname else None
+    provider = normalize_provider(runtime_setting("REQSYS_RUNTIME_PROVIDER", "pc24x7"))
+    base_url = runtime_setting("REQSYS_PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/")
     return {
         "status": "ok",
         "correlation_id": correlation_id(),
         "service": SERVICE_NAME,
         "version": SERVICE_VERSION,
-        "domain": "REQSYS#002.RUNTIME_PUBLICO.FLYIO_DUCKDNS",
+        "domain": "REQSYS#002.RUNTIME_PUBLICO.RUNTIME_ROUTING",
         "environment": environment,
-        "fly_app_name": fly_app_name,
-        "fly_url": f"https://{fly_app_name}.fly.dev",
-        "duckdns_hostname": duckdns_hostname or None,
-        "duckdns_url": duckdns_url,
-        "smoke_paths": ["/health", "/ready", "/runtime-deploy", "/runtime-artifact", "/runtime-public"],
-        "runtime_configuration": {
-            "fly_app_variable": "REQSYS_FLY_APP_NAME",
-            "duckdns_variable": "REQSYS_DUCKDNS_HOSTNAME",
-            "legacy_fallback_enabled": True,
+        "target": {
+            "provider": provider,
+            "base_url": base_url,
+            "health_url": f"{base_url}/health",
+            "runtime_public_url": f"{base_url}/runtime-public",
         },
-        "cost_guard": {
-            "auto_stop_machines": "stop",
-            "auto_start_machines": True,
-            "min_machines_running": 0,
-            "no_paid_database": True,
-            "no_volume_required": True,
+        "smoke_paths": SMOKE_PATHS,
+        "runtime_configuration": {
+            "provider_variable": "REQSYS_RUNTIME_PROVIDER",
+            "base_url_variable": "REQSYS_PUBLIC_BASE_URL",
+            "flyio_active": False,
+            "legacy_flyio_fallback_enabled": False,
         },
         "constraints": [
             "does not configure secrets in code",
             "does not create DNS records automatically",
             "does not claim production without smoke evidence",
+            "does not use Fly.io as active route",
         ],
     }
 
