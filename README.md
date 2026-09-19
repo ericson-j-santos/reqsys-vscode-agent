@@ -12,9 +12,15 @@ Fornecer comandos e contratos governados para:
 - consultar informações do projeto com base em evidência local;
 - executar busca semântica leve local sem LLM externo;
 - validar readiness e artefato/container do runtime;
-- preparar deploy público controlado no Fly.io;
-- validar Fly.io e DuckDNS por smoke HTTP;
-- manter runbook de rollback testado em CI.
+- expor contrato HTTP local/provider-neutral;
+- validar smoke HTTP contra o runtime selecionado;
+- manter evidência de roteamento e rollback/restart antes de promoção.
+
+## Estado de runtime
+
+Fly.io não é mais a rota ativa deste projeto.
+
+A rota atual segue a regra operacional `runtime-routing`: avaliar e reaproveitar PC24x7/local primeiro. Provedor externo só deve ser usado quando houver decisão explícita por requisito objetivo de SLA, segurança, continuidade ou regulação.
 
 ## Arquitetura mínima
 
@@ -28,9 +34,8 @@ VS Code Extension
   -> Runtime Deploy Readiness Contract
   -> Runtime Container Artifact
   -> HTTP Runtime
-  -> Fly.io Public Deploy Workflow
-  -> Fly.io Smoke Monitor
-  -> Fly.io Rollback Readiness
+  -> Runtime Routing Contract
+  -> Runtime Smoke Monitor
 ```
 
 ## O que este projeto não faz
@@ -42,9 +47,9 @@ VS Code Extension
 - Não depende do build do projeto consumidor.
 - Não usa LLM ou banco vetorial por padrão.
 - Não publica URL pública sem CI verde e smoke test.
-- Não cria ou altera registros DuckDNS automaticamente.
-- Não registra `FLY_API_TOKEN` em código, logs ou artifacts.
-- Não trata rollback de imagem como rollback de banco de dados.
+- Não cria ou altera registros DNS automaticamente.
+- Não registra segredos em código, logs ou artifacts.
+- Não usa Fly.io como rota ativa.
 
 ## Estrutura
 
@@ -56,7 +61,6 @@ tools/
 examples/reqsys.config.json
 docs/
 .github/workflows/
-fly.toml
 README.md
 ```
 
@@ -104,22 +108,23 @@ PYTHONPATH=agent python -m reqsys_agent.cli runtime-artifact
 PYTHONPATH=agent python -m reqsys_agent.cli runtime-artifact --environment staging
 ```
 
-### Contrato Fly.io + DuckDNS
+### Contrato de roteamento do runtime
 
 ```bash
 PYTHONPATH=agent python -m reqsys_agent.cli runtime-public \
   --environment dev \
-  --app-name reqsys-vscode-agent \
-  --duckdns-hostname <hostname>.duckdns.org
+  --provider pc24x7 \
+  --base-url http://localhost:8080
 ```
+
+Os parâmetros antigos `--app-name` e `--duckdns-hostname` continuam aceitos apenas para compatibilidade e retornam `status=attention`, pois Fly.io/DuckDNS não são rota ativa.
 
 ### Contrato do smoke monitor
 
 ```bash
 PYTHONPATH=agent python -m reqsys_agent.cli runtime-monitor \
   --environment dev \
-  --base-url https://reqsys-vscode-agent.fly.dev \
-  --duckdns-url https://<hostname>.duckdns.org
+  --base-url http://localhost:8080
 ```
 
 ### Servidor HTTP local
@@ -136,23 +141,17 @@ Endpoints:
 - `/runtime-artifact`;
 - `/runtime-public`.
 
-## Variáveis do runtime Fly.io
+## Variáveis do runtime ativo
 
 Variáveis não sensíveis:
 
 ```text
 REQSYS_RUNTIME_ENVIRONMENT
-REQSYS_FLY_APP_NAME
-REQSYS_DUCKDNS_HOSTNAME
+REQSYS_RUNTIME_PROVIDER
+REQSYS_PUBLIC_BASE_URL
 ```
 
-Os nomes antigos `FLY_APP_NAME` e `DUCKDNS_HOSTNAME` permanecem apenas como fallback de compatibilidade no serviço HTTP. Novos deploys usam os nomes `REQSYS_*`, evitando colisão com variáveis reservadas do Fly.io.
-
-Secret obrigatório para deploy real:
-
-```text
-FLY_API_TOKEN
-```
+Não há secret Fly.io obrigatório para a rota ativa.
 
 ## Workflows de runtime
 
@@ -161,54 +160,22 @@ FLY_API_TOKEN
 | CI | `.github/workflows/ci.yml` | testes Python, health e compilação TypeScript |
 | Runtime Deploy Readiness | `.github/workflows/runtime-deploy.yml` | readiness por ambiente e artifact |
 | Runtime Container Artifact | `.github/workflows/runtime-artifact.yml` | build/inspeção do container e artifact |
-| Fly.io Public Deploy | `.github/workflows/flyio-deploy.yml` | validação em PR e deploy manual real |
-| Fly.io Smoke Monitor | `.github/workflows/flyio-smoke-monitor.yml` | smoke real em `.fly.dev` e DuckDNS |
-| Fly.io Rollback Readiness | `.github/workflows/flyio-rollback-readiness.yml` | validação automática do runbook |
+| Runtime Smoke Monitor | `.github/workflows/flyio-smoke-monitor.yml` | smoke HTTP provider-neutral contra runtime selecionado |
+| Legacy Fly.io Public Deploy | `.github/workflows/flyio-deploy.yml` | rota legada arquivada; não executa deploy |
+| Fly.io Rollback Readiness | `.github/workflows/flyio-rollback-readiness.yml` | legado; valida runbook histórico |
 
-### Fly.io Public Deploy
+## Runtime Smoke Monitor
 
-Em pull request, o workflow executa testes, build Docker, container local, smoke HTTP e validação da injeção de metadados.
+Em pull request, o workflow executa testes e valida o contrato local do monitor.
 
 Em `workflow_dispatch`, ele:
 
-1. exige `FLY_API_TOKEN`;
-2. valida ambiente, nome do app e hostname DuckDNS;
-3. usa `flyctl 0.4.49` instalado por action fixada em commit SHA;
-4. registra as releases anteriores;
-5. executa deploy com uma Machine (`--ha=false`) e image label igual ao commit;
-6. injeta `REQSYS_RUNTIME_ENVIRONMENT`, `REQSYS_FLY_APP_NAME` e `REQSYS_DUCKDNS_HOSTNAME`;
-7. executa smoke HTTP;
-8. valida os metadados retornados por `/runtime-public`;
-9. publica `flyio-public-deploy-evidence-*`, inclusive em falha.
+1. valida ambiente e URL base;
+2. emite contrato de monitoramento;
+3. executa smoke HTTP contra `/health`, `/ready`, `/runtime-deploy`, `/runtime-artifact` e `/runtime-public`;
+4. publica artifact de evidência.
 
-O deploy real permanece manual e não é executado em pull request.
-
-### Fly.io Smoke Monitor
-
-O workflow manual valida:
-
-- `/health`;
-- `/ready`;
-- `/runtime-deploy`;
-- `/runtime-artifact`;
-- `/runtime-public`;
-- `/health` via DuckDNS quando informado.
-
-### Rollback
-
-Runbook:
-
-```text
-docs/FLYIO_ROLLBACK_RUNBOOK.md
-```
-
-Validação local:
-
-```bash
-python tools/validate_flyio_rollback_runbook.py
-```
-
-O rollback seleciona uma imagem anterior com `flyctl releases --image` e a redeploya com `flyctl deploy --image`. O procedimento exige smoke posterior e artifact de evidência.
+O workflow não faz deploy, rollback, alteração de DNS ou alteração de segredos.
 
 ## Contexto local
 
@@ -262,10 +229,11 @@ A busca usa TF-IDF + similaridade de cosseno localmente, sem embeddings externos
 
 ## Documentação
 
-- `docs/RUNTIME_PUBLIC_DEPLOY.md` — estado consolidado da frente;
-- `docs/FLYIO_PUBLIC_DEPLOY.md` — execução Fly.io + DuckDNS;
-- `docs/FLYIO_SMOKE_MONITOR.md` — smoke público;
-- `docs/FLYIO_ROLLBACK_RUNBOOK.md` — rollback operacional;
+- `docs/RUNTIME_ROUTING_CURRENT.md` — rota atual e decisão de não usar Fly.io;
+- `docs/RUNTIME_PUBLIC_DEPLOY.md` — histórico consolidado da frente;
+- `docs/FLYIO_PUBLIC_DEPLOY.md` — legado Fly.io + DuckDNS;
+- `docs/FLYIO_SMOKE_MONITOR.md` — legado smoke público Fly.io;
+- `docs/FLYIO_ROLLBACK_RUNBOOK.md` — legado rollback operacional;
 - `docs/INCREMENTAL_INDEX_CACHE.md` — cache incremental.
 
 ## Roadmap enxuto
@@ -278,7 +246,7 @@ A busca usa TF-IDF + similaridade de cosseno localmente, sem embeddings externos
 | 0.4 | Contrato de runtime público/deploy | Implementado |
 | 0.5 | Readiness com artifact | Implementado |
 | 0.6 | Artefato/container com evidência | Implementado |
-| 0.7 | Deploy público controlado + smoke HTTP | Pipeline implementado; execução real pendente de workflow manual |
-| 0.7.1 | Hardening de metadados e rollback | Implementado neste incremento |
+| 0.7 | Deploy público controlado + smoke HTTP | Recalibrado para runtime não Fly.io |
+| 0.7.1 | Roteamento ativo PC24x7/non-Fly | Implementado neste incremento |
 | 0.8 | LlamaIndex/Ollama opcional | Futuro |
 | 0.9 | Sugestão de patch assistida | Futuro |
