@@ -43,10 +43,18 @@ jobs:
     name: living-architecture-runtime-evidence-check
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    env:
+      REQSYS_EVIDENCE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
-      - name: Checkout
+      - name: Checkout exact source SHA
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REQSYS_EVIDENCE_SOURCE_SHA }}
+
+      - name: Verify source SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "${REQSYS_EVIDENCE_SOURCE_SHA}"
 
       - name: Setup Python
         uses: actions/setup-python@v5
