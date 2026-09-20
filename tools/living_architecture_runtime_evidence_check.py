@@ -359,7 +359,7 @@ def main() -> int:
             "correlation_id": str(uuid.uuid4()),
             "run_context": {
                 "repository": os.environ.get("GITHUB_REPOSITORY"),
-                "sha": os.environ.get("GITHUB_SHA"),
+                "sha": os.environ.get("REQSYS_EVIDENCE_SOURCE_SHA") or os.environ.get("GITHUB_SHA"),\n                "github_sha": os.environ.get("GITHUB_SHA"),\n                "head_ref": os.environ.get("GITHUB_HEAD_REF"),
                 "run_id": os.environ.get("GITHUB_RUN_ID"),
                 "workflow": os.environ.get("GITHUB_WORKFLOW"),
             },
@@ -383,7 +383,7 @@ def main() -> int:
             "correlation_id": str(uuid.uuid4()),
             "run_context": {
                 "repository": os.environ.get("GITHUB_REPOSITORY"),
-                "sha": os.environ.get("GITHUB_SHA"),
+                "sha": os.environ.get("REQSYS_EVIDENCE_SOURCE_SHA") or os.environ.get("GITHUB_SHA"),\n                "github_sha": os.environ.get("GITHUB_SHA"),\n                "head_ref": os.environ.get("GITHUB_HEAD_REF"),
                 "run_id": os.environ.get("GITHUB_RUN_ID"),
                 "workflow": os.environ.get("GITHUB_WORKFLOW"),
             },
