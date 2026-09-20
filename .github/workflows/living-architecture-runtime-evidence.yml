@@ -1,0 +1,159 @@
+# Owner: IA_DOCUMENTACAO_VIVA
+# Status: runtime-evidence-local-e2e
+# Atualizado em: 2026-09-20
+# Escopo: REQSYS#007.LIVING_ARCHITECTURE
+
+name: Living Architecture Runtime Evidence
+
+on:
+  pull_request:
+    paths:
+      - "docs/living-architecture/**"
+      - "docs/RUNTIME_ROUTING_CURRENT.md"
+      - "agent/reqsys_agent/http_runtime.py"
+      - "agent/reqsys_agent/cli.py"
+      - "tools/living_architecture_runtime_evidence_check.py"
+      - ".github/workflows/living-architecture-runtime-evidence.yml"
+      - ".github/workflows/living-architecture-docs.yml"
+      - ".github/workflows/runtime-deploy.yml"
+      - ".github/workflows/runtime-artifact.yml"
+      - ".github/workflows/flyio-smoke-monitor.yml"
+      - ".github/workflows/flyio-deploy.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/living-architecture/**"
+      - "docs/RUNTIME_ROUTING_CURRENT.md"
+      - "agent/reqsys_agent/http_runtime.py"
+      - "agent/reqsys_agent/cli.py"
+      - "tools/living_architecture_runtime_evidence_check.py"
+      - ".github/workflows/living-architecture-runtime-evidence.yml"
+      - ".github/workflows/living-architecture-docs.yml"
+      - ".github/workflows/runtime-deploy.yml"
+      - ".github/workflows/runtime-artifact.yml"
+      - ".github/workflows/flyio-smoke-monitor.yml"
+      - ".github/workflows/flyio-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-evidence:
+    name: living-architecture-runtime-evidence-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      REQSYS_EVIDENCE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - name: Checkout exact source SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.REQSYS_EVIDENCE_SOURCE_SHA }}
+
+      - name: Verify source SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "${REQSYS_EVIDENCE_SOURCE_SHA}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate strict documentation gate
+        run: |
+          python tools/living_architecture_doc_drift_check.py \
+            --map docs/living-architecture/runtime-docs-map.json \
+            --report artifacts/living-architecture-report.json \
+            --strict
+
+      - name: Start real local runtime
+        run: |
+          mkdir -p artifacts
+          REQSYS_RUNTIME_ENVIRONMENT=dev \
+          REQSYS_RUNTIME_PROVIDER=pc24x7 \
+          REQSYS_PUBLIC_BASE_URL=http://127.0.0.1:8080 \
+          PYTHONPATH=agent \
+          python -u -m reqsys_agent.cli serve --host 127.0.0.1 --port 8080 \
+            > artifacts/living-architecture-runtime.log 2>&1 &
+          echo $! > artifacts/living-architecture-runtime.pid
+
+          ready=0
+          for attempt in $(seq 1 30); do
+            if python -c "from urllib.request import urlopen; import json; r=urlopen('http://127.0.0.1:8080/health', timeout=1); p=json.load(r); assert r.status == 200 and p.get('status') == 'ok'"; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$ready" != "1" ]; then
+            echo "Runtime local não ficou pronto dentro do limite."
+            cat artifacts/living-architecture-runtime.log || true
+            exit 1
+          fi
+
+      - name: Validate runtime to documentation evidence
+        run: |
+          python tools/living_architecture_runtime_evidence_check.py \
+            --map docs/living-architecture/runtime-docs-map.json \
+            --report artifacts/living-architecture-runtime-evidence.json \
+            --base-url http://127.0.0.1:8080 \
+            --telemetry-log artifacts/living-architecture-runtime.log
+
+      - name: Test the validator negative control
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          source = Path("docs/living-architecture/runtime-docs-map.json")
+          target = Path("artifacts/runtime-docs-map-negative.json")
+          payload = json.loads(source.read_text(encoding="utf-8"))
+          payload["runtime_evidence"]["repository_markers"][0]["contains"] = "__REQSYS_INTENTIONAL_MISSING_MARKER__"
+          target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+
+          set +e
+          python tools/living_architecture_runtime_evidence_check.py \
+            --map artifacts/runtime-docs-map-negative.json \
+            --report artifacts/living-architecture-runtime-evidence-negative.json \
+            --repository-only
+          negative_rc=$?
+          set -e
+
+          if [ "$negative_rc" -eq 0 ]; then
+            echo "Controle negativo falhou: o validador aceitou marcador deliberadamente inválido."
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("artifacts/living-architecture-runtime-evidence-negative.json").read_text(encoding="utf-8"))
+          codes = {item.get("code") for item in report.get("findings", [])}
+          assert report.get("status") == "failed"
+          assert "REPOSITORY_MARKER_MISSING" in codes
+          PY
+
+      - name: Stop local runtime
+        if: always()
+        run: |
+          if [ -f artifacts/living-architecture-runtime.pid ]; then
+            kill "$(cat artifacts/living-architecture-runtime.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: living-architecture-runtime-evidence-${{ env.REQSYS_EVIDENCE_SOURCE_SHA }}
+          path: |
+            artifacts/living-architecture-report.json
+            artifacts/living-architecture-runtime-evidence.json
+            artifacts/living-architecture-runtime-evidence-negative.json
+            artifacts/living-architecture-runtime.log
+          if-no-files-found: error
+          retention-days: 30
