@@ -1,6 +1,6 @@
 # Owner: IA_DOCUMENTACAO_VIVA
 # Status: strict-metadata-gate
-# Atualizado em: 2026-07-31
+# Atualizado em: 2026-09-20
 # Escopo: REQSYS#007.LIVING_ARCHITECTURE
 
 name: Living Architecture Docs
@@ -11,14 +11,18 @@ on:
       - "docs/living-architecture/**"
       - "docs/adr/**"
       - "tools/living_architecture_doc_drift_check.py"
+      - "tools/living_architecture_runtime_evidence_check.py"
       - ".github/workflows/living-architecture-docs.yml"
+      - ".github/workflows/living-architecture-runtime-evidence.yml"
   push:
     branches: [main]
     paths:
       - "docs/living-architecture/**"
       - "docs/adr/**"
       - "tools/living_architecture_doc_drift_check.py"
+      - "tools/living_architecture_runtime_evidence_check.py"
       - ".github/workflows/living-architecture-docs.yml"
+      - ".github/workflows/living-architecture-runtime-evidence.yml"
   workflow_dispatch:
 
 permissions:
