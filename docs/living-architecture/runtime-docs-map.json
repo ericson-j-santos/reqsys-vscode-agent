@@ -1,10 +1,10 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "scope": "REQSYS#007.LIVING_ARCHITECTURE",
-  "updated_at": "2026-07-31",
+  "updated_at": "2026-09-20",
   "owner": "IA_DOCUMENTACAO_VIVA",
-  "status": "automation-strict-metadata",
-  "maturity_target_percent": 84,
+  "status": "runtime-evidence-local-e2e",
+  "maturity_target_percent": 100,
   "runtime_doc_links": [
     {
       "component_id": "runtime-public",
@@ -13,8 +13,8 @@
         "docs/living-architecture/README.md",
         "docs/living-architecture/architecture-graph.mmd"
       ],
-      "evidence_type": "ci-artifact",
-      "validation_status": "automated-strict"
+      "evidence_type": "ci-artifact+runtime-local-e2e",
+      "validation_status": "automated-strict+runtime-local-e2e"
     },
     {
       "component_id": "ci-cd-governed",
@@ -33,8 +33,8 @@
         "docs/living-architecture/analytics.md",
         "docs/living-architecture/architecture-graph.mmd"
       ],
-      "evidence_type": "ci-artifact",
-      "validation_status": "automated-strict"
+      "evidence_type": "ci-artifact+structured-http-access-log",
+      "validation_status": "automated-strict+runtime-log-evidence"
     },
     {
       "component_id": "ux-operational",
@@ -56,14 +56,103 @@
       ],
       "evidence_type": "ci-artifact",
       "validation_status": "automated-strict"
+    },
+    {
+      "component_id": "runtime-evidence-validation",
+      "component_type": "runtime_governance",
+      "expected_docs": [
+        "tools/living_architecture_runtime_evidence_check.py",
+        ".github/workflows/living-architecture-runtime-evidence.yml"
+      ],
+      "evidence_type": "ci-artifact+http-smoke+negative-control",
+      "validation_status": "runtime-local-e2e"
     }
   ],
+  "runtime_evidence": {
+    "mode": "runtime-local-e2e",
+    "active_provider_policy": "pc24x7-first",
+    "required_endpoints": [
+      "/health",
+      "/ready",
+      "/runtime-deploy",
+      "/runtime-artifact",
+      "/runtime-public"
+    ],
+    "required_paths": [
+      "docs/RUNTIME_ROUTING_CURRENT.md",
+      "agent/reqsys_agent/http_runtime.py",
+      "agent/reqsys_agent/cli.py",
+      ".github/workflows/ci.yml",
+      ".github/workflows/runtime-deploy.yml",
+      ".github/workflows/runtime-artifact.yml",
+      ".github/workflows/flyio-smoke-monitor.yml",
+      ".github/workflows/flyio-deploy.yml",
+      ".github/workflows/living-architecture-runtime-evidence.yml",
+      "tools/living_architecture_runtime_evidence_check.py"
+    ],
+    "repository_markers": [
+      {
+        "path": "docs/RUNTIME_ROUTING_CURRENT.md",
+        "contains": "Fly.io não é mais a rota ativa"
+      },
+      {
+        "path": "agent/reqsys_agent/http_runtime.py",
+        "contains": "\"active_policy\": \"pc24x7-first\""
+      },
+      {
+        "path": "agent/reqsys_agent/http_runtime.py",
+        "contains": "\"flyio_active\": False"
+      },
+      {
+        "path": ".github/workflows/ci.yml",
+        "contains": "name: CI"
+      },
+      {
+        "path": ".github/workflows/runtime-deploy.yml",
+        "contains": "runtime-deploy-evidence-"
+      },
+      {
+        "path": ".github/workflows/runtime-artifact.yml",
+        "contains": "runtime-container-artifact-evidence-"
+      },
+      {
+        "path": ".github/workflows/flyio-smoke-monitor.yml",
+        "contains": "name: Runtime Smoke Monitor"
+      },
+      {
+        "path": ".github/workflows/flyio-deploy.yml",
+        "contains": "name: Legacy Fly.io Public Deploy"
+      },
+      {
+        "path": ".github/workflows/living-architecture-runtime-evidence.yml",
+        "contains": "living-architecture-runtime-evidence-"
+      }
+    ],
+    "telemetry": {
+      "type": "structured-http-access-log",
+      "event": "http_access",
+      "positive_and_negative_paths_required": true
+    },
+    "artifact": {
+      "name_prefix": "living-architecture-runtime-evidence-",
+      "report": "living-architecture-runtime-evidence.json",
+      "negative_control_report": "living-architecture-runtime-evidence-negative.json",
+      "runtime_log": "living-architecture-runtime.log"
+    },
+    "external_runtime": {
+      "status": "blocked-pending-selected-runtime-url",
+      "environment": "dev",
+      "provider_policy": "pc24x7-first",
+      "base_url_variable": "REQSYS_PUBLIC_BASE_URL",
+      "reason": "A rota ativa foi corrigida para PC24x7-first, mas a URL final do runtime selecionado ainda não está registrada."
+    }
+  },
   "next_required_automation": {
-    "name": "living-architecture-runtime-evidence-check",
-    "purpose": "Cruzar a documentação viva com endpoints, workflows, artifacts e telemetria reais, preservando o gate estrito de estrutura e metadados.",
-    "blocking_level": "strict-metadata-and-missing-docs",
-    "artifact": "living-architecture-report.json",
-    "workflow": ".github/workflows/living-architecture-docs.yml",
-    "mode": "strict"
+    "name": "living-architecture-selected-runtime-evidence-check",
+    "purpose": "Executar o mesmo contrato contra a URL DEV selecionada no PC24x7, vincular endpoint, artifact e telemetria ao SHA atual e manter controle negativo.",
+    "blocking_level": "blocked-pending-selected-runtime-url",
+    "artifact": "living-architecture-runtime-evidence.json",
+    "workflow": ".github/workflows/living-architecture-runtime-evidence.yml",
+    "mode": "selected-runtime-e2e"
   }
 }
