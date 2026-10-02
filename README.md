@@ -117,7 +117,7 @@ PYTHONPATH=agent python -m reqsys_agent.cli runtime-public \
   --base-url http://localhost:8080
 ```
 
-Os parâmetros antigos `--app-name` e `--duckdns-hostname` continuam aceitos apenas para compatibilidade e retornam `status=attention`, pois Fly.io/DuckDNS não são rota ativa.
+O provedor Fly.io e seus parâmetros antigos foram removidos; `--provider flyio` é recusado com código de saída diferente de zero.
 
 ### Contrato do smoke monitor
 
@@ -151,7 +151,7 @@ REQSYS_RUNTIME_PROVIDER
 REQSYS_PUBLIC_BASE_URL
 ```
 
-Não há secret Fly.io obrigatório para a rota ativa.
+Secrets Fly.io são proibidos e não são consumidos pela rota ativa.
 
 ## Workflows de runtime
 
@@ -160,9 +160,7 @@ Não há secret Fly.io obrigatório para a rota ativa.
 | CI | `.github/workflows/ci.yml` | testes Python, health e compilação TypeScript |
 | Runtime Deploy Readiness | `.github/workflows/runtime-deploy.yml` | readiness por ambiente e artifact |
 | Runtime Container Artifact | `.github/workflows/runtime-artifact.yml` | build/inspeção do container e artifact |
-| Runtime Smoke Monitor | `.github/workflows/flyio-smoke-monitor.yml` | smoke HTTP provider-neutral contra runtime selecionado |
-| Legacy Fly.io Public Deploy | `.github/workflows/flyio-deploy.yml` | rota legada arquivada; não executa deploy |
-| Fly.io Rollback Readiness | `.github/workflows/flyio-rollback-readiness.yml` | legado; valida runbook histórico |
+| Runtime Smoke Monitor | `.github/workflows/runtime-smoke-monitor.yml` | smoke HTTP provider-neutral; recusa domínios Fly.io |
 
 ## Runtime Smoke Monitor
 
@@ -229,11 +227,8 @@ A busca usa TF-IDF + similaridade de cosseno localmente, sem embeddings externos
 
 ## Documentação
 
-- `docs/RUNTIME_ROUTING_CURRENT.md` — rota atual e decisão de não usar Fly.io;
-- `docs/RUNTIME_PUBLIC_DEPLOY.md` — histórico consolidado da frente;
-- `docs/FLYIO_PUBLIC_DEPLOY.md` — legado Fly.io + DuckDNS;
-- `docs/FLYIO_SMOKE_MONITOR.md` — legado smoke público Fly.io;
-- `docs/FLYIO_ROLLBACK_RUNBOOK.md` — legado rollback operacional;
+- `docs/RUNTIME_ROUTING_CURRENT.md` — rota atual e proibição permanente do Fly.io;
+- `docs/RUNTIME_PUBLIC_DEPLOY.md` — contrato provider-neutral da frente;
 - `docs/INCREMENTAL_INDEX_CACHE.md` — cache incremental.
 
 ## Roadmap enxuto

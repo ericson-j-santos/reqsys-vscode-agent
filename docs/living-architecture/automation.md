@@ -64,7 +64,7 @@ A cópia temporária fica somente no artifact do run e não é versionada.
 
 ## Estado de runtime
 
-A rota ativa segue a política **PC24x7-first/provider-neutral**. Fly.io permanece apenas como legado rastreável.
+A rota ativa segue a política **PC24x7-first/provider-neutral**. Os artefatos executáveis do Fly.io foram retirados; somente guardas de rejeição permanecem.
 
 O incremento atual comprova o runtime real iniciado no runner do CI e vinculado ao SHA da execução. Ele **não** declara que o runtime externo selecionado no PC24x7 está validado.
 

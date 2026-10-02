@@ -30,7 +30,7 @@ def runtime_setting(primary_name: str, default: str = "") -> str:
 def normalize_provider(value: str | None) -> str:
     provider = (value or "pc24x7").strip().lower()
     if provider in {"fly.io", "flyio"}:
-        return "legacy-flyio"
+        return "retired-flyio"
     return provider or "pc24x7"
 
 
@@ -98,6 +98,17 @@ def runtime_artifact_payload(environment: str) -> dict:
 
 def runtime_public_payload(environment: str) -> dict:
     provider = normalize_provider(runtime_setting("REQSYS_RUNTIME_PROVIDER", "pc24x7"))
+    if provider == "retired-flyio":
+        return {
+            "status": "blocked",
+            "correlation_id": correlation_id(),
+            "service": SERVICE_NAME,
+            "version": SERVICE_VERSION,
+            "domain": "REQSYS#002.RUNTIME_PUBLICO.RUNTIME_ROUTING",
+            "environment": environment,
+            "message": "Fly.io is permanently retired and cannot be selected.",
+        }
+
     base_url = runtime_setting("REQSYS_PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/")
     return {
         "status": "ok",

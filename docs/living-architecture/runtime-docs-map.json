@@ -85,8 +85,7 @@
       ".github/workflows/ci.yml",
       ".github/workflows/runtime-deploy.yml",
       ".github/workflows/runtime-artifact.yml",
-      ".github/workflows/flyio-smoke-monitor.yml",
-      ".github/workflows/flyio-deploy.yml",
+      ".github/workflows/runtime-smoke-monitor.yml",
       ".github/workflows/living-architecture-runtime-evidence.yml",
       "tools/living_architecture_runtime_evidence_check.py"
     ],
@@ -116,12 +115,8 @@
         "contains": "runtime-container-artifact-evidence-"
       },
       {
-        "path": ".github/workflows/flyio-smoke-monitor.yml",
+        "path": ".github/workflows/runtime-smoke-monitor.yml",
         "contains": "name: Runtime Smoke Monitor"
-      },
-      {
-        "path": ".github/workflows/flyio-deploy.yml",
-        "contains": "name: Legacy Fly.io Public Deploy"
       },
       {
         "path": ".github/workflows/living-architecture-runtime-evidence.yml",

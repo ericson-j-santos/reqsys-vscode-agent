@@ -46,7 +46,7 @@ RUNTIME_CONTAINER_ARTIFACT = {
 SMOKE_ENDPOINTS = ["/health", "/ready", "/runtime-deploy", "/runtime-artifact", "/runtime-public"]
 DEFAULT_RUNTIME_PROVIDER = "pc24x7"
 DEFAULT_RUNTIME_URL = "http://localhost:8080"
-LEGACY_PROVIDERS = {"fly.io", "flyio"}
+RETIRED_PROVIDERS = {"fly.io", "flyio"}
 
 
 def correlation_id() -> str:
@@ -60,8 +60,8 @@ def emit(payload: dict) -> int:
 
 def normalize_provider(provider: str | None) -> str:
     normalized = (provider or DEFAULT_RUNTIME_PROVIDER).strip().lower()
-    if normalized in LEGACY_PROVIDERS:
-        return "legacy-flyio"
+    if normalized in RETIRED_PROVIDERS:
+        return "retired-flyio"
     return normalized or DEFAULT_RUNTIME_PROVIDER
 
 
@@ -185,15 +185,21 @@ def command_runtime_public(
     environment: str,
     provider: str | None,
     base_url: str | None,
-    app_name: str | None,
-    duckdns_hostname: str | None,
 ) -> int:
     selected_provider = normalize_provider(provider)
+    if selected_provider == "retired-flyio":
+        return emit({
+            "status": "error",
+            "correlation_id": correlation_id(),
+            "service": "reqsys-vscode-agent",
+            "domain": "REQSYS#002.RUNTIME_PUBLICO.RUNTIME_ROUTING",
+            "message": "Fly.io is permanently retired and cannot be selected.",
+        })
+
     selected_base_url = (base_url or DEFAULT_RUNTIME_URL).rstrip("/")
-    legacy_flyio_requested = selected_provider == "legacy-flyio" or bool(app_name) or bool(duckdns_hostname)
 
     return emit({
-        "status": "attention" if legacy_flyio_requested else "ok",
+        "status": "ok",
         "correlation_id": correlation_id(),
         "service": "reqsys-vscode-agent",
         "domain": "REQSYS#002.RUNTIME_PUBLICO.RUNTIME_ROUTING",
@@ -210,13 +216,6 @@ def command_runtime_public(
             "active_route": "pc24x7-first",
             "external_provider_requires_explicit_decision": True,
             "flyio_active": False,
-            "legacy_flyio_inputs_received": legacy_flyio_requested,
-        },
-        "legacy_flyio": {
-            "status": "deprecated",
-            "reason": "Fly.io is no longer the active runtime route for this project.",
-            "app_name_input": app_name,
-            "duckdns_hostname_input": duckdns_hostname,
         },
         "required_gates": [
             "runtime target selected",
@@ -380,8 +379,6 @@ def main(argv: list[str] | None = None) -> int:
     public_cmd.add_argument("--environment", choices=[item["name"] for item in RUNTIME_ENVIRONMENTS], default="dev")
     public_cmd.add_argument("--provider", default=DEFAULT_RUNTIME_PROVIDER)
     public_cmd.add_argument("--base-url", default=DEFAULT_RUNTIME_URL)
-    public_cmd.add_argument("--app-name", default=None, help="Legado Fly.io: não usar como rota ativa")
-    public_cmd.add_argument("--duckdns-hostname", default=None, help="Legado Fly.io/DuckDNS: não usar como rota ativa")
 
     monitor_cmd = sub.add_parser("runtime-monitor")
     monitor_cmd.add_argument("--base-url", required=True)
@@ -425,8 +422,6 @@ def main(argv: list[str] | None = None) -> int:
             args.environment,
             args.provider,
             args.base_url,
-            args.app_name,
-            args.duckdns_hostname,
         )
 
     if args.command == "runtime-monitor":

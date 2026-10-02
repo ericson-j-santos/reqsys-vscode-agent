@@ -3,7 +3,7 @@ name: Runtime Smoke Monitor
 on:
   pull_request:
     paths:
-      - ".github/workflows/flyio-smoke-monitor.yml"
+      - ".github/workflows/runtime-smoke-monitor.yml"
       - "agent/**"
       - "docs/RUNTIME_ROUTING_CURRENT.md"
       - "README.md"
@@ -129,6 +129,15 @@ jobs:
             echo "Missing required input: base_url"
             exit 1
           fi
+
+          LOWER_BASE_URL="$(printf '%s' "${BASE_URL}" | tr '[:upper:]' '[:lower:]')"
+          LOWER_SECONDARY_URL="$(printf '%s' "${SECONDARY_URL}" | tr '[:upper:]' '[:lower:]')"
+          case "${LOWER_BASE_URL}" in
+            *fly.dev*|*fly.io*) echo "Fly.io is permanently retired"; exit 1 ;;
+          esac
+          case "${LOWER_SECONDARY_URL}" in
+            *fly.dev*|*fly.io*) echo "Fly.io is permanently retired"; exit 1 ;;
+          esac
 
           case "${BASE_URL}" in
             http://*|https://*) echo "Base URL has accepted scheme" ;;

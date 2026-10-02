@@ -17,8 +17,7 @@ on:
       - ".github/workflows/living-architecture-docs.yml"
       - ".github/workflows/runtime-deploy.yml"
       - ".github/workflows/runtime-artifact.yml"
-      - ".github/workflows/flyio-smoke-monitor.yml"
-      - ".github/workflows/flyio-deploy.yml"
+      - ".github/workflows/runtime-smoke-monitor.yml"
   push:
     branches: [main]
     paths:
@@ -31,8 +30,7 @@ on:
       - ".github/workflows/living-architecture-docs.yml"
       - ".github/workflows/runtime-deploy.yml"
       - ".github/workflows/runtime-artifact.yml"
-      - ".github/workflows/flyio-smoke-monitor.yml"
-      - ".github/workflows/flyio-deploy.yml"
+      - ".github/workflows/runtime-smoke-monitor.yml"
   workflow_dispatch:
 
 permissions:

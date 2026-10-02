@@ -37,16 +37,14 @@ def test_runtime_public_contract_with_pc24x7_url():
     ]) == 0
 
 
-def test_runtime_public_contract_accepts_legacy_flyio_inputs_as_attention():
+def test_runtime_public_contract_rejects_retired_flyio_provider():
     assert main([
         "runtime-public",
         "--environment",
         "staging",
-        "--app-name",
-        "reqsys-vscode-agent",
-        "--duckdns-hostname",
-        "reqsys.duckdns.org",
-    ]) == 0
+        "--provider",
+        "flyio",
+    ]) == 1
 
 
 def test_runtime_monitor_contract():
