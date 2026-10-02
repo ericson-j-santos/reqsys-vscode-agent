@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 LABEL org.opencontainers.image.title="ReqSys VSCode Agent Runtime"
-LABEL org.opencontainers.image.description="Runtime container artifact for ReqSys VSCode Agent readiness validation and Fly.io public runtime"
+LABEL org.opencontainers.image.description="Provider-neutral runtime container artifact for ReqSys VSCode Agent readiness validation"
 LABEL org.opencontainers.image.source="https://github.com/ericson-j-santos/reqsys-vscode-agent"
 LABEL org.opencontainers.image.vendor="ReqSys"
 

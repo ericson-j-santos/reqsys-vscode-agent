@@ -13,8 +13,8 @@ A rota ativa deve seguir a regra operacional `runtime-routing`: avaliar e reapro
 | Código HTTP runtime | Implementado |
 | Contrato `runtime-public` | Provider-neutral / não Fly.io |
 | Smoke monitor | Provider-neutral |
-| Deploy Fly.io | Legado arquivado |
-| Secret `FLY_API_TOKEN` | Não requerido para rota ativa |
+| Deploy Fly.io | Retirado permanentemente |
+| Secret `FLY_API_TOKEN` | Proibido e não requerido |
 | Produção | Bloqueada sem autorização e smoke real |
 
 ## Variáveis ativas
@@ -51,6 +51,6 @@ A frente só pode ser considerada operacionalmente concluída quando houver:
 5. procedimento de rollback/restart documentado para o runtime selecionado;
 6. bloqueio explícito de produção sem autorização.
 
-## Legado Fly.io
+## Retirada permanente do Fly.io
 
-Os arquivos históricos de Fly.io permanecem no repositório para rastreabilidade, mas não representam a rota ativa. O workflow `Legacy Fly.io Public Deploy` não deve executar deploy.
+Os workflows, runbooks e ferramentas executáveis do Fly.io foram removidos. Os contratos de runtime recusam o provedor e o monitor provider-neutral rejeita domínios `fly.dev` e `fly.io` antes de qualquer chamada de rede.
